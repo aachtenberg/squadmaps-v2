@@ -1,0 +1,32 @@
+# Heavy map assets — fetch via download_tiles.sh / download_assets.sh
+assets/maps/tiles/
+assets/maps/single/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+
+# C# / dotnet build artifacts
+**/bin/
+**/obj/
+*.user
+*.suo
+.vs/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Local environment
+.env
+.env.local
+
+# Tile-fetch script intermediates
+/tmp/tile_urls.txt

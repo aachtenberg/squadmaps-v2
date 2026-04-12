@@ -1,0 +1,3 @@
+[submodule "scripts/extraction/cue4parse-extractor/CUE4Parse"]
+	path = scripts/extraction/cue4parse-extractor/CUE4Parse
+	url = https://github.com/FabianFG/CUE4Parse.git

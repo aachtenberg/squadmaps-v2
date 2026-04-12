@@ -1,0 +1,42 @@
+MIT License
+
+Copyright (c) 2026 aachtenberg and contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+----------------------------------------------------------------------
+
+This project includes and/or builds on work from several other projects:
+
+- The original SquadMaps website by Pablo Ferrer (Napster653) and maintained
+  by Matthew Moss (mahtoid). https://github.com/mahtoid/SquadMaps
+  Map textures, tile assets, faction flags, and unit icons are derived from
+  this upstream and from Squad's game data (© Offworld Industries Ltd.).
+  This fork is a community rewrite and not affiliated with squadmaps.com.
+
+- CUE4Parse by FabianFG and contributors, MIT licensed.
+  https://github.com/FabianFG/CUE4Parse
+  Used as a git submodule by the spatial extractor.
+
+- The progressive RAAS UX design pattern was inspired by squadlanes.com,
+  a separate community tool. No code from squadlanes was copied — only the
+  user-facing interaction model.
+
+- Squad and all related game assets are © Offworld Industries Ltd. This is
+  a fan project; no affiliation with or endorsement by Offworld Industries.

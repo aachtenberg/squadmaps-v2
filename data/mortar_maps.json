@@ -1,0 +1,266 @@
+[
+  {
+    "name": "Al Basrah",
+    "size": 3040,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.01294,
+    "heightmapName": "al basrah",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Anvil",
+    "size": 3060,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.216675,
+    "heightmapName": "anvil",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Belaya Pass",
+    "size": 3904,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.0726,
+    "heightmapName": "belaya",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Black Coast",
+    "size": 4600,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.35,
+    "heightmapName": "black coast",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Chora",
+    "size": 4064,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.064,
+    "heightmapName": "chora",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Fallujah",
+    "size": 3005,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.0401,
+    "heightmapName": "fallujah",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Fool's Road",
+    "size": 1774,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.15744,
+    "heightmapName": "fool's road",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Goose Bay",
+    "size": 4031,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.22064,
+    "heightmapName": "goose bay",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Gorodok",
+    "size": 4064,
+    "offset": [
+      200,
+      200
+    ],
+    "scaling": 0.11900000000000001,
+    "heightmapName": "gorodok",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Harju",
+    "size": 4032,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.131,
+    "heightmapName": "harju",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Kamdesh Highlands",
+    "size": 4032,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.190215,
+    "heightmapName": "kamdesh",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Kohat Toi",
+    "size": 4617,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.733125,
+    "heightmapName": "kohat",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Kokan",
+    "size": 2496,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.0164,
+    "heightmapName": "kokan",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Lashkar Valley",
+    "size": 4334,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.28215,
+    "heightmapName": "lashkar",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Logar Valley",
+    "size": 1761,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.13575,
+    "heightmapName": "logar",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Manicouagan",
+    "size": 4031,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.3564,
+    "heightmapName": "manicouagan",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Mestia",
+    "size": 2400,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.41028,
+    "heightmapName": "mestia",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Mutaha",
+    "size": 2755,
+    "offset": [
+      -70,
+      -100
+    ],
+    "scaling": 0.07071,
+    "heightmapName": "mutaha",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Narva",
+    "size": 2800,
+    "offset": [
+      -100,
+      -100
+    ],
+    "scaling": 0.0583,
+    "heightmapName": "narva",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Sanxian Islands",
+    "size": 4600,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.1892,
+    "heightmapName": "sanxian",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Skorpo",
+    "size": 6869,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 1.0927,
+    "heightmapName": "skorpo",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Sumari Bala",
+    "size": 1300,
+    "offset": [
+      0,
+      0
+    ],
+    "scaling": 0.035925,
+    "heightmapName": "sumari",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Tallil Outskirts",
+    "size": 4680,
+    "offset": [
+      -200,
+      -200
+    ],
+    "scaling": 0.05275,
+    "heightmapName": "tallil",
+    "maxZoomLevel": 4
+  },
+  {
+    "name": "Yehorivka",
+    "size": 6350,
+    "offset": [
+      -8300,
+      -8300
+    ],
+    "scaling": 0.2732,
+    "heightmapName": "yehorivka",
+    "maxZoomLevel": 4
+  }
+]

@@ -1,0 +1,366 @@
+[
+  {
+    "name": "mortar",
+    "velocity": 110,
+    "gravityScale": 1,
+    "minElevation": [
+      800,
+      1579
+    ],
+    "unit": "mil",
+    "type": "deployables",
+    "angleType": "high",
+    "elevationPrecision": 0,
+    "minDistance": 51,
+    "moa": 50,
+    "explosionDamage": 350,
+    "explosionRadius": [
+      0,
+      40
+    ],
+    "explosionDistanceFromImpact": 1,
+    "damageFallOff": 7
+  },
+  {
+    "name": "M1064 M121",
+    "velocity": 142,
+    "gravityScale": 1,
+    "minElevation": [
+      -45,
+      85.3
+    ],
+    "unit": "deg",
+    "type": "vehicles",
+    "angleType": "high",
+    "elevationPrecision": 1,
+    "minDistance": 370,
+    "moa": 40,
+    "explosionDamage": 400,
+    "explosionRadius": [
+      0,
+      40
+    ],
+    "explosionDistanceFromImpact": 1,
+    "damageFallOff": 7,
+    "shells": [
+      {
+        "name": "Impact",
+        "moa": 40,
+        "explosionDamage": 400,
+        "explosionRadius": [
+          0,
+          40
+        ],
+        "explosionDistanceFromImpact": 1,
+        "damageFallOff": 7
+      },
+      {
+        "name": "Near Surface",
+        "moa": 50,
+        "explosionDamage": 100,
+        "explosionRadius": [
+          10,
+          60
+        ],
+        "explosionDistanceFromImpact": 10,
+        "damageFallOff": 1.3
+      }
+    ]
+  },
+  {
+    "name": "UB-32",
+    "velocity": [
+      [
+        100,
+        334.7778886114855
+      ],
+      [
+        200,
+        305.6459342280165
+      ],
+      [
+        300,
+        283.0585190456855
+      ],
+      [
+        400,
+        269.15585935988156
+      ],
+      [
+        500,
+        268.4445467197605
+      ],
+      [
+        600,
+        241.58938992870094
+      ],
+      [
+        700,
+        230.00396877923583
+      ],
+      [
+        800,
+        227.48886673532039
+      ],
+      [
+        900,
+        226.87144522938755
+      ],
+      [
+        1000,
+        219.29451804327465
+      ],
+      [
+        1100,
+        217.69947684093455
+      ],
+      [
+        1200,
+        213.47910836403614
+      ],
+      [
+        1300,
+        217.24714731055712
+      ],
+      [
+        1400,
+        215.84356249799185
+      ],
+      [
+        1500,
+        213.64675771020842
+      ],
+      [
+        1600,
+        210.37877185692568
+      ],
+      [
+        1700,
+        208.344434014631
+      ],
+      [
+        1800,
+        207.3186719065925
+      ],
+      [
+        1900,
+        207.57652270427334
+      ],
+      [
+        2000,
+        208.62643147834694
+      ],
+      [
+        2050,
+        206.18365942119797
+      ],
+      [
+        2100,
+        205.6621778109742
+      ],
+      [
+        2143,
+        204.87704785305388
+      ]
+    ],
+    "gravityScale": 2,
+    "minElevation": [
+      -25,
+      35
+    ],
+    "unit": "deg",
+    "type": "deployables",
+    "angleType": "low",
+    "elevationPrecision": 1,
+    "minDistance": 0,
+    "moa": 300,
+    "explosionDamage": 115,
+    "explosionRadius": [
+      5,
+      18
+    ],
+    "explosionDistanceFromImpact": 0.2,
+    "damageFallOff": 1
+  },
+  {
+    "name": "Hell Cannon",
+    "velocity": 95,
+    "gravityScale": 1,
+    "minElevation": [
+      10,
+      85
+    ],
+    "unit": "deg",
+    "type": "deployables",
+    "angleType": "high",
+    "elevationPrecision": 1,
+    "minDistance": 160,
+    "moa": 100,
+    "explosionDamage": 125,
+    "explosionRadius": [
+      1,
+      50
+    ],
+    "explosionDistanceFromImpact": 2,
+    "damageFallOff": 1
+  },
+  {
+    "name": "Tech. Mortar",
+    "velocity": 110,
+    "gravityScale": 1,
+    "minElevation": [
+      -45,
+      135
+    ],
+    "unit": "deg",
+    "type": "vehicles",
+    "angleType": "high",
+    "elevationPrecision": 1,
+    "minDistance": 51,
+    "moa": 50,
+    "explosionDamage": 350,
+    "explosionRadius": [
+      0,
+      40
+    ],
+    "explosionDistanceFromImpact": 0.5,
+    "damageFallOff": 7
+  },
+  {
+    "name": "Tech. UB-32",
+    "velocity": [
+      [
+        100,
+        335.1200224653227
+      ],
+      [
+        200,
+        305.9582960205495
+      ],
+      [
+        300,
+        283.34779711713827
+      ],
+      [
+        400,
+        269.43092929304714
+      ],
+      [
+        500,
+        256.00067568689457
+      ],
+      [
+        600,
+        246.0597855795005
+      ],
+      [
+        700,
+        230.23902655011395
+      ],
+      [
+        800,
+        227.72135414063865
+      ],
+      [
+        900,
+        227.10330164679877
+      ],
+      [
+        1000,
+        219.51863104815288
+      ],
+      [
+        1100,
+        217.92195975729098
+      ],
+      [
+        1200,
+        213.69727817913733
+      ],
+      [
+        1300,
+        217.46916795849413
+      ],
+      [
+        1400,
+        216.06414872060554
+      ],
+      [
+        1500,
+        213.86509885836008
+      ],
+      [
+        1600,
+        210.59377321283807
+      ],
+      [
+        1700,
+        208.55735633285997
+      ],
+      [
+        1800,
+        207.5305459239776
+      ],
+      [
+        1900,
+        207.7886602381275
+      ],
+      [
+        2000,
+        208.8396419902778
+      ],
+      [
+        2050,
+        206.39437348683896
+      ],
+      [
+        2100,
+        205.87235893665985
+      ],
+      [
+        2143,
+        205.08642659737743
+      ]
+    ],
+    "gravityScale": 2,
+    "minElevation": [
+      -45,
+      135
+    ],
+    "unit": "deg",
+    "type": "vehicles",
+    "angleType": "low",
+    "elevationPrecision": 1,
+    "minDistance": 0,
+    "moa": 300,
+    "explosionDamage": 115,
+    "explosionRadius": [
+      5,
+      18
+    ],
+    "explosionDistanceFromImpact": 0.2,
+    "damageFallOff": 1
+  },
+  {
+    "name": "BM-21 Grad",
+    "velocity": 200,
+    "gravityScale": 2,
+    "minElevation": [
+      -45,
+      135
+    ],
+    "unit": "deg",
+    "type": "vehicles",
+    "angleType": "low",
+    "elevationPrecision": 1,
+    "minDistance": 0,
+    "moa": 200,
+    "explosionDamage": 140,
+    "explosionRadius": [
+      1,
+      35
+    ],
+    "explosionDistanceFromImpact": 2,
+    "damageFallOff": 1
+  }
+]

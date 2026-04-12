@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SquadMaps v10</title>
+  <meta name="description" content="Interactive Squad v10 map viewer with all layers, factions, vehicles, objectives, and mortar calculator.">
+  <link rel="icon" href="squadmaps-32.png" type="image/png" sizes="32x32">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css?v=36">
+</head>
+<body>
+  <!-- Header -->
+  <header id="header">
+    <div class="header-left">
+      <h1><a href="#" id="home-link">SQUADMAPS</a></h1>
+      <span class="version-badge" id="version-badge">SQ v10.0</span>
+    </div>
+    <div class="header-center">
+      <div class="search-container">
+        <input type="text" id="search-input" placeholder="Search maps or layers..." autocomplete="off">
+      </div>
+    </div>
+    <div class="header-right">
+      <select id="lang-select">
+        <option value="en">EN</option>
+        <option value="de">DE</option>
+        <option value="fr">FR</option>
+        <option value="zh">中文</option>
+        <option value="ua">UA</option>
+      </select>
+    </div>
+  </header>
+
+  <!-- Main Layout -->
+  <div id="app">
+    <!-- Map Grid (card list) -->
+    <div id="map-grid" class="map-grid"></div>
+
+    <!-- Map View (single map with Leaflet) -->
+    <div id="map-view" class="map-view hidden">
+      <div class="map-view-header">
+        <button id="back-btn" class="back-btn">&larr; Back</button>
+        <div class="layer-info">
+          <h2 id="layer-name"></h2>
+          <div class="layer-meta" id="layer-meta"></div>
+        </div>
+      </div>
+
+      <div class="map-view-body">
+        <!-- Left sidebar: tabbed (Layers / Info) -->
+        <aside id="left-sidebar" class="sidebar left-sidebar">
+          <div class="sidebar-tabs">
+            <button class="sidebar-tab active" data-tab="layers">Layers</button>
+            <button class="sidebar-tab" data-tab="info">Info</button>
+          </div>
+          <div class="sidebar-tab-pane active" id="tab-layers">
+            <div id="layer-list" class="layer-list"></div>
+          </div>
+          <div class="sidebar-tab-pane" id="tab-info">
+            <div id="detail-content"></div>
+          </div>
+        </aside>
+
+        <!-- Map container -->
+        <div id="map-container" class="map-container">
+          <div id="leaflet-map" class="leaflet-map"></div>
+          <!-- Top info bar -->
+          <div id="top-panel" class="top-panel">
+            <div class="team-panel team1-panel" id="team1-panel"></div>
+            <div class="match-info" id="match-info"></div>
+            <div class="team-panel team2-panel" id="team2-panel"></div>
+          </div>
+          <!-- Map tools -->
+          <div id="map-tools" class="map-tools">
+            <button id="hab-tool-btn" class="map-tool-btn" title="HAB placement tool — click map to place (Esc to cancel)">
+              <span class="tool-icon">&#9978;</span>
+              <span class="tool-label">HAB</span>
+            </button>
+            <div id="hab-controls" class="hab-controls hidden">
+              <button class="hab-team-btn hab-team1 active" data-team="team1" title="Place Team 1 HAB">T1</button>
+              <button class="hab-team-btn hab-team2" data-team="team2" title="Place Team 2 HAB">T2</button>
+              <button id="hab-clear-btn" class="hab-clear-btn" title="Remove all HABs">&times;</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="data/v10_data.js?v=2"></script>
+  <script src="data/translations.js"></script>
+  <script src="data/water_hazards.js"></script>
+  <script src="app.js?v=36"></script>
+</body>
+</html>

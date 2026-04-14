@@ -19,16 +19,62 @@
   let captureSequence = [];    // array of normalized tokens captured so far, in order
   let activeTeam = null;       // 'team1' or 'team2' – which team's perspective
   let capturedSubPoints = {};  // token -> {x, y, name} – which sub-point was picked for each captured obj
-  let showAllLanePoints = true; // toggle: show faint future lane points/lines as look-ahead
   let activeDestructionPhase = null; // null = show all phases, 0/1/2 = specific phase
+  let animatedLaneLines = [];
+  let laneAnimationFrameId = null;
+  let lastLaneAnimationTs = 0;
 
-  // HAB placement tool
-  let habToolActive = false;
-  let habPlacementTeam = 'team1';   // which team's HAB to place
+  // HAB placement (triggered via right-click context menu — no dedicated tool state).
   let placedHabs = [];              // [{ueX, ueY, team, marker, buildCircle, exclusionCircle}]
   let habLayerGroup = null;
   const HAB_BUILD_RADIUS = 15000;     // 150m in UE units (construction radius)
   const HAB_EXCLUSION_RADIUS = 40000; // 400m in UE units (enemy/friendly FOB exclusion)
+
+  // Indirect-fire tool (standard mortar for POC).
+  // Always-on: double-click the map to place. First dblclick = mortar (shows
+  // range circle as a dagger pin where the tip is the weapon position);
+  // each subsequent dblclick adds an independent target. All markers are
+  // draggable. Dragging the mortar keeps every target where it is — the
+  // firing solutions just recompute from the new mortar position.
+  let mortarPosition = null;         // {ueX, ueY} — world UE units
+  let targetPositions = [];          // array of {ueX, ueY}, added in order
+  let mortarLayerGroup = null;
+  // Persistent references to the Leaflet objects so drag updates can move
+  // them in place without a full re-render (which would destroy the marker
+  // mid-drag and break the interaction). `targets` is a parallel array to
+  // targetPositions with per-target marker + line handles.
+  const mortarRefs = { marker: null, rangeCircle: null, targets: [] };
+  // Right-click context-menu state. ctxMenuLatLng is the map coord captured at
+  // the moment the user opened the menu — actions read it when an item fires.
+  let ctxMenuLatLng = null;
+  let ctxMenuJustClosed = false;
+  const heightmapCache = {};
+  // Our mapId -> squadcalc heightmap file mapping.
+  // Same json shape everywhere: 500x500 float array of meters above sea level.
+  const HEIGHTMAP_FILES = {
+    AlBasrah: 'albasrah', Anvil: 'anvil', BlackCoast: 'blackcoast',
+    Chora: 'chora', Fallujah: 'fallujah', FoolsRoad: 'foolsroad',
+    GooseBay: 'goosebay', Gorodok: 'gorodok', Harju: 'harju',
+    Kamdesh: 'kamdesh', Kohat: 'kohat', Kokan: 'kokan',
+    Lashkar: 'lashkar', Logar: 'logar', Manicouagan: 'manicouagan',
+    Mestia: 'mestia', Mutaha: 'mutaha', Narva: 'narva',
+    PacificProvingGrounds: 'pacific', Sanxian_Islands: 'sanxian',
+    Skorpo: 'skorpo', Sumari: 'sumari', Tallil: 'tallil',
+    Yehorivka: 'yehorivka',
+  };
+  // Standard Squad mortar. Values match SquadCalc's weapons.js (SDK-sourced):
+  // v=110 m/s, g=9.81 * 1.0, high-angle only between 45° and 88.875°, tube
+  // sits ~1m above the ground so the mortar height gets +1. The shell has
+  // an outer kill radius of 40m (explosionRadius[1] in SquadCalc's data).
+  const MORTAR = {
+    name: 'Standard Mortar',
+    velocity: 110,
+    gravity: 9.81,
+    heightOffset: 1,
+    minElevationDeg: 45,
+    maxElevationDeg: 88.875,
+    damageRadiusM: 40,
+  };
 
   // Faction display names & flag lookup
   const FACTION_NAMES = {
@@ -58,6 +104,26 @@
   };
 
   const DOCTRINE_KEYS = ['AirAssault', 'Motorized', 'CombinedArms', 'Armored', 'Mechanized', 'LightInfantry', 'Support'];
+
+  // Heatmap colors for capture-step badges (1-indexed). Matches the v9 RAAS
+  // overlay: captured = green, then cyan→blue→red→orange→purple→pink as the
+  // step number grows. Anything past step 7 falls back to grey.
+  const STEP_COLORS = [
+    null,         // 0 unused
+    '#5cb85c',    // 1 captured / first
+    '#3cc8c8',    // 2 cyan
+    '#3b87d8',    // 3 blue
+    '#d8483b',    // 4 red
+    '#e08025',    // 5 orange
+    '#a050c8',    // 6 purple
+    '#d850a8',    // 7 pink
+    '#9aa0a6'     // 8+ grey fallback
+  ];
+
+  function getStepColor(step) {
+    if (!Number.isFinite(step) || step < 1) return STEP_COLORS[STEP_COLORS.length - 1];
+    return STEP_COLORS[Math.min(step, STEP_COLORS.length - 1)];
+  }
 
   const ARCHETYPE_LABELS = {
     AirAssault: 'Air Assault',
@@ -273,10 +339,12 @@
     const laneNames = getLaneNames(layer);
     let laneHtml = '';
     if (laneNames.length > 0) {
+      const captureSteps = getCaptureSteps();
+      const captureCount = captureSteps.length;
       // Compute which lanes are still possible given the current capture sequence
       let remainingLaneNames = laneNames;
       let isFreeMode = false;
-      if (activeTeam && !activeLane && captureSequence.length > 0) {
+      if (activeTeam && captureCount > 0) {
         const remaining = getRemainingLanes(layer, captureSequence, activeTeam);
         remainingLaneNames = laneNames.filter(n => n in remaining);
         if (remainingLaneNames.length === 0) {
@@ -299,11 +367,11 @@
         ${activeTeam ? `<div class="lane-status${isFreeMode ? ' free-mode' : ''}">
           ${activeLane
             ? `Lane: <strong>${activeLane}</strong>`
-            : (captureSequence.length === 0
+            : (captureCount === 0
                 ? `<em>Click first capture point to narrow lanes</em>`
                 : isFreeMode
-                  ? `<strong>Free mode</strong> · ${captureSequence.length} captured · path doesn't match known lanes`
-                  : `${captureSequence.length} captured · ${remainingLaneNames.length} lane${remainingLaneNames.length === 1 ? '' : 's'} possible`)}
+                  ? `<strong>Free mode</strong> · ${captureCount} captured · path doesn't match known lanes`
+                  : `${captureCount} captured · ${remainingLaneNames.length} lane${remainingLaneNames.length === 1 ? '' : 's'} possible`)}
         </div>` : ''}
       </div>`;
     }
@@ -329,9 +397,10 @@
       }
     }
 
-    // TC hex info
+    // TC hex info — match by gamemode rather than cp.type so we tolerate
+    // the older "TC Hex Zone" extraction string and the newer "TerritoryControl".
     let tcHtml = '';
-    if (cp.type === 'TC Hex Zone') {
+    if (layer.gamemode === 'Territory Control') {
       const hexsData = cp.hexs || {};
       const hexList = hexsData.hexs || [];
       const t1Hexs = hexList.filter(h => h.initialTeam === '1').length;
@@ -407,29 +476,18 @@
   }
 
   function bindTeamPanelEvents(layer) {
+    // Faction dropdown: changes the team's faction only. Does NOT activate
+    // the team perspective — that happens exclusively via clicking the Main
+    // capture point on the map.
     document.querySelectorAll('.team-select').forEach((select) => {
       select.onchange = (event) => {
         const teamKey = event.target.dataset.team;
         selectedFactionIds[teamKey] = event.target.value;
-        setActiveTeam(teamKey, layer, { renderDetailsToo: true });
+        renderTopPanel(layer);
+        renderDetails(layer);
+        redrawMarkers(layer);
       };
     });
-
-    // Team panel click to select perspective (RAAS lanes or AAS fixed path)
-    const laneNames = getLaneNames(layer);
-    const hasTeamToggle = laneNames.length > 0 || !!getAASPath(layer);
-    if (hasTeamToggle) {
-      const t1 = document.getElementById('team1-panel');
-      const t2 = document.getElementById('team2-panel');
-      t1.onclick = (e) => {
-        if (e.target.closest('select')) return;
-        setActiveTeam('team1', layer, { allowToggleOff: true });
-      };
-      t2.onclick = (e) => {
-        if (e.target.closest('select')) return;
-        setActiveTeam('team2', layer, { allowToggleOff: true });
-      };
-    }
   }
 
   function setActiveTeam(teamKey, layer, options = {}) {
@@ -457,15 +515,9 @@
       btn.addEventListener('click', () => {
         const lane = btn.dataset.lane;
         activeLane = lane || null;
-        captureSequence = [];
-        capturedSubPoints = {};
         // Auto-select team1 when choosing a lane if no team is active
         if (activeLane && !activeTeam) {
           activeTeam = 'team1';
-        }
-        // Clear team when going back to "All"
-        if (!activeLane) {
-          activeTeam = null;
         }
         renderTopPanel(layer);
         redrawMarkers(layer);
@@ -497,10 +549,12 @@
 
   function redrawMarkers(layer) {
     if (!markerGroup) return;
+    resetLaneLineAnimations();
     markerGroup.clearLayers();
     drawBorder(layer);
     drawTCHexZones(layer);
     drawDestructionPhases(layer);
+    drawInsurgencyCaches(layer);
     drawObjectives(layer);
   }
 
@@ -538,18 +592,25 @@
   }
 
   function normalizeObjectiveToken(value) {
-    let s = String(value || '')
-      .toLowerCase()
-      .replace(/bp_/g, '')               // Strip BP_ prefix (Al Basrah etc)
+    const raw = String(value || '').toLowerCase();
+    // Mains: detect by name regardless of leading index, collapse to a
+    // canonical token. Handles "00-Team1Main", "100-Team2 Main",
+    // "Z-Team2 Main", "Team2Main_1", etc.
+    if (/team\s*1[^a-z0-9]*main/.test(raw)) return 'team1main';
+    if (/team\s*2[^a-z0-9]*main/.test(raw) || /^z[-\s_]*team\s*2/.test(raw)) return 'team2main';
+    // Clusters: strip BP_ prefix and the CaptureZoneCluster suffix, then
+    // collapse to alnum. KEEP the leading index — `01-CaptureZoneCluster`
+    // and `02-CaptureZoneCluster` must produce distinct tokens (used to
+    // both collapse to "" which broke Invasion lane parsing).
+    let s = raw
+      .replace(/bp_/g, '')
       .replace(/capturezonecluster/g, '')
-      .replace(/^\d+-/g, '')              // Strip leading number prefix (00-, 100-)
-      .replace(/^z-/g, '')                // Strip Z- prefix
-      .replace(/team\s*1/g, 'team1')
-      .replace(/team\s*2/g, 'team2')
       .replace(/[^a-z0-9]/g, '');
-    // Normalize main tokens: strip trailing digits (team1main_2 → team1main)
-    s = s.replace(/^(team[12]main)\d+$/, '$1');
     return s;
+  }
+
+  function isGridObjectiveLabel(value) {
+    return /^[A-Z]\d{1,2}$/i.test(String(value || '').trim());
   }
 
   function getObjectiveDisplayName(key, objective, orderName) {
@@ -558,6 +619,12 @@
     const pointNames = points
       .map(p => p.name)
       .filter(n => n && !/capturezonecluster/i.test(n));
+
+    const cleanObjectiveLabel = (value) => String(value || '')
+      .replace(/^\d+-/, '')
+      .replace(/-?(BP_)?CaptureZoneCluster$/i, '')
+      .replace(/_/g, ' ')
+      .trim();
 
     if (/team\s*1\s*main|team1main/i.test(key)) return 'Team 1 Main';
     if (/team\s*2\s*main|team2main/i.test(key) || /main_1$/i.test(key)) return 'Team 2 Main';
@@ -568,12 +635,10 @@
       return unique[0];
     }
 
-    const rawLabel = objective.objectDisplayName || orderName || objective.name || key;
-    const cleaned = String(rawLabel)
-      .replace(/^\d+-/, '')
-      .replace(/-?(BP_)?CaptureZoneCluster$/i, '')
-      .replace(/_/g, ' ')
-      .trim();
+    const candidates = [objective.name, objective.objectDisplayName, orderName, key]
+      .map(cleanObjectiveLabel)
+      .filter(Boolean);
+    const cleaned = candidates.find(label => !isGridObjectiveLabel(label)) || candidates[0] || 'Objective';
 
     if (/team\s*1\s*main|team1main/i.test(cleaned)) return 'Team 1 Main';
     if (/team\s*2\s*main|team2main|z-team2\s*main/i.test(cleaned)) return 'Team 2 Main';
@@ -587,6 +652,10 @@
       .map(p => p.name)
       .filter(n => n && !/capturezonecluster/i.test(n));
     return [...new Set(names)];
+  }
+
+  function shouldShowPermanentObjectiveLabel(label) {
+    return Boolean(label) && !isGridObjectiveLabel(label);
   }
 
   function getObjectivePosition(objective) {
@@ -627,12 +696,84 @@
   // ---- RAAS Lane Helpers ----
   function getLanes(layer) {
     const cp = layer.capturePoints || {};
-    return (cp.lanes || {}).laneObjects || {};
+    const explicit = (cp.lanes || {}).laneObjects || {};
+    if (Object.keys(explicit).length > 0) return explicit;
+    if (layer.gamemode === 'Invasion') return getInvasionLanes(layer);
+    return {};
   }
 
   function getLaneNames(layer) {
     const cp = layer.capturePoints || {};
-    return (cp.lanes || {}).listOfLanes || [];
+    const explicit = (cp.lanes || {}).listOfLanes || [];
+    if (explicit.length > 0) return explicit;
+    if (layer.gamemode === 'Invasion') return Object.keys(getInvasionLanes(layer));
+    return [];
+  }
+
+  // Invasion's legacy baseline encodes its lane structure as a flat
+  // clusters.pointsOrder: [team1main, A1..A5, team1main, B1..B5, ..., team2main].
+  // Repeated team1main entries delimit lanes; team2main appears once at the
+  // end (every lane shares it). Single-lane Invasions (Anvil etc.) have just
+  // one team1main, no letter-prefix on the clusters. Returns a lanes map in
+  // the same shape as RAAS getLanes() so the existing renderer handles it.
+  function getInvasionLanes(layer) {
+    if (layer.gamemode !== 'Invasion') return {};
+    const cp = layer.capturePoints || {};
+    const flat = (cp.clusters || {}).pointsOrder
+              || (cp.points || {}).pointsOrder
+              || [];
+    if (!Array.isArray(flat) || flat.length === 0) return {};
+
+    const isTeam1 = (n) => /team\s*1.*main/i.test(n);
+    const isTeam2 = (n) => /team\s*2.*main|^z-?team2/i.test(n);
+
+    const segments = [];
+    let current = null;
+    let team2Token = null;
+    for (const item of flat) {
+      if (isTeam2(item)) {
+        team2Token = item;
+        if (current && current.length > 0) {
+          segments.push(current);
+          current = null;
+        }
+        continue;
+      }
+      if (isTeam1(item)) {
+        if (current && current.length > 0) segments.push(current);
+        current = [item];
+        continue;
+      }
+      if (current) current.push(item);
+    }
+    if (current && current.length > 0) segments.push(current);
+
+    if (segments.length === 0) return {};
+
+    const lanes = {};
+    const usedNames = new Set();
+    segments.forEach((seg, idx) => {
+      const firstCluster = seg.find((s) => !isTeam1(s));
+      const letterMatch = firstCluster && firstCluster.match(/^([A-Z])\d/i);
+      let name = letterMatch ? letterMatch[1].toUpperCase() : `Lane ${idx + 1}`;
+      // Disambiguate if two segments collide on the same letter
+      let suffix = 2;
+      const base = name;
+      while (usedNames.has(name)) name = `${base}_${suffix++}`;
+      usedNames.add(name);
+
+      const pointsOrder = [...seg];
+      if (team2Token) pointsOrder.push(team2Token);
+
+      lanes[name] = {
+        name,
+        pointsOrder,
+        numberOfPoints: pointsOrder.length,
+        listOfMains: [seg[0], team2Token].filter(Boolean),
+      };
+    });
+
+    return lanes;
   }
 
   function getLaneObjectiveKeys(lane) {
@@ -650,34 +791,91 @@
     return directional.filter(t => !/team[12]main/.test(t));
   }
 
+  function getCaptureStepKey(token) {
+    const selected = capturedSubPoints[token];
+    if (selected && Number.isFinite(selected.x) && Number.isFinite(selected.y)) {
+      return `pos:${Math.round(selected.x / 50)}:${Math.round(selected.y / 50)}`;
+    }
+    return `token:${token}`;
+  }
+
+  function getCaptureSteps(sequence = captureSequence) {
+    const steps = [];
+    for (const token of sequence) {
+      const key = getCaptureStepKey(token);
+      const last = steps[steps.length - 1];
+      if (last && last.key === key) {
+        last.tokens.push(token);
+        last.tokenSet.add(token);
+      } else {
+        steps.push({ key, tokens: [token], tokenSet: new Set([token]) });
+      }
+    }
+    return steps;
+  }
+
   // Filter lanes to those whose capture order starts with the given sequence.
   // sequence is an array of normalized tokens already captured (in order).
   function getRemainingLanes(layer, sequence, team) {
     const lanes = getLanes(layer);
+    const steps = getCaptureSteps(sequence);
     const remaining = {};
     for (const [name, lane] of Object.entries(lanes)) {
       const order = getLaneCaptureOrder(lane, team);
-      if (order.length < sequence.length) continue;
+      if (order.length < steps.length) continue;
       let matches = true;
-      for (let i = 0; i < sequence.length; i++) {
-        if (order[i] !== sequence[i]) { matches = false; break; }
+      for (let i = 0; i < steps.length; i++) {
+        if (!steps[i].tokenSet.has(order[i])) { matches = false; break; }
       }
       if (matches) remaining[name] = lane;
     }
     return remaining;
   }
 
+  function getLanePointsUnionFromSet(lanes, team) {
+    const union = new Set();
+    for (const lane of Object.values(lanes)) {
+      for (const token of getLaneCaptureOrder(lane, team)) {
+        union.add(token);
+      }
+    }
+    return union;
+  }
+
+  function getNextCaptureOptionsFromSet(lanes, sequence, team) {
+    const steps = getCaptureSteps(sequence);
+    const options = new Set();
+    for (const lane of Object.values(lanes)) {
+      const order = getLaneCaptureOrder(lane, team);
+      const next = order[steps.length];
+      if (next) options.add(next);
+    }
+    return options;
+  }
+
+  function getLookaheadStepsFromSet(lanes, sequence, team) {
+    const stepByToken = new Map();
+    const steps = getCaptureSteps(sequence);
+    steps.forEach((step, i) => {
+      for (const token of step.tokens) stepByToken.set(token, i + 1);
+    });
+    for (const lane of Object.values(lanes)) {
+      const order = getLaneCaptureOrder(lane, team);
+      for (let i = steps.length; i < order.length; i++) {
+        const tok = order[i];
+        const step = i + 1;
+        const existing = stepByToken.get(tok);
+        if (existing == null || step < existing) stepByToken.set(tok, step);
+      }
+    }
+    return stepByToken;
+  }
+
   // Compute the next set of capturable point tokens across all remaining lanes.
   // Returns a Set of normalized tokens.
   function getNextCaptureOptions(layer, sequence, team) {
     const remaining = getRemainingLanes(layer, sequence, team);
-    const options = new Set();
-    for (const lane of Object.values(remaining)) {
-      const order = getLaneCaptureOrder(lane, team);
-      const next = order[sequence.length];
-      if (next) options.add(next);
-    }
-    return options;
+    return getNextCaptureOptionsFromSet(remaining, sequence, team);
   }
 
   // Find all cluster tokens that have a sub-point at the given coordinates.
@@ -713,11 +911,17 @@
   // Union of all point tokens that appear in any remaining lane (for filtering display)
   function getRemainingLanePointsUnion(layer, sequence, team) {
     const remaining = getRemainingLanes(layer, sequence, team);
-    const union = new Set();
-    for (const lane of Object.values(remaining)) {
-      for (const t of getLaneCaptureOrder(lane, team)) union.add(t);
-    }
-    return union;
+    return getLanePointsUnionFromSet(remaining, team);
+  }
+
+  // For every cluster token in the remaining-lane union, compute its
+  // earliest team-perspective step number (1-indexed). Captured tokens get
+  // their position in the sequence; future tokens get the smallest step
+  // they hold across any remaining lane (matches v9's "min position" rule
+  // when a flag appears in multiple lanes at different positions).
+  function getLookaheadSteps(layer, sequence, team) {
+    const remaining = getRemainingLanes(layer, sequence, team);
+    return getLookaheadStepsFromSet(remaining, sequence, team);
   }
 
   function isObjectiveInLane(objKey, lane) {
@@ -776,11 +980,18 @@
     return ordered;
   }
 
+  function getObjectiveLabelByToken(layer, token) {
+    const normalized = normalizeObjectiveToken(token);
+    const match = buildOrderedObjectives(layer).find((entry) => normalizeObjectiveToken(entry.key) === normalized);
+    return match?.label || token;
+  }
+
   // ---- Leaflet Map ----
   function renderMap(layer) {
     const container = document.getElementById('leaflet-map');
 
     // Clean up previous map
+    resetLaneLineAnimations();
     if (leafletMap) {
       leafletMap.remove();
       leafletMap = null;
@@ -797,8 +1008,11 @@
     const maxY = Math.max(corners[0].location_y, corners[1].location_y);
 
     const mapHeight = Math.abs(maxY - minY);
-    const maxNativeZoom = 4;
+    // Tile pyramid tops out at z=5 (32x32 = 1024 tiles, ~8192px square),
+    // upscaled from the SDK-native 4096x4096 source via Real-ESRGAN x4plus.
+    // See scripts/upscale_tiles_to_z5.py for the rebuild pipeline.
     const tileSize = 256;
+    const maxNativeZoom = 5;
 
     // Uniform scale factor (matches the working v1 site)
     // Transformation: x' = a*lng + b, y' = c*lat + d
@@ -834,7 +1048,7 @@
       L.latLng(minY, minX),
       L.latLng(maxY, maxX)
     );
-    tileLayer = L.tileLayer(`assets/maps/tiles/${texName}/{z}/{x}/{y}.png`, {
+    tileLayer = L.tileLayer(`assets/maps/tiles/${texName}/{z}/{x}/{y}.webp`, {
       tileSize: tileSize,
       maxNativeZoom: maxNativeZoom,
       minZoom: 0,
@@ -857,22 +1071,34 @@
     drawBorder(layer);
     drawTCHexZones(layer);
     drawDestructionPhases(layer);
+    drawInsurgencyCaches(layer);
     drawObjectives(layer);
 
     // HAB tool layer (persists across redraws, sits on top)
     initHabLayer();
-    leafletMap.on('click', handleMapClick);
+    initMortarLayer();
+    leafletMap.on('dblclick', handleMapDblClick);
+    leafletMap.on('contextmenu', openMapContextMenu);
+    leafletMap.on('movestart zoomstart', closeMapContextMenu);
   }
 
-  // ---- AAS Path Helper ----
-  // AAS has a fixed pointsOrder with no lanes. Build a synthetic lane object
-  // so the same rendering logic works for both AAS and RAAS.
-  function getAASPath(layer) {
-    if (layer.gamemode !== 'AAS') return null;
+  // ---- Fixed Path Helpers ----
+  // AAS and Skirmish expose a single fixed pointsOrder (no lane graph) — a
+  // numbered chain from team1 main through ~5-7 contestable points to team2
+  // main. Build a synthetic path object so they can share the marker/line
+  // renderer. Invasion looks similar in the data but is actually multi-lane —
+  // see getInvasionLanes — and flows through the RAAS-progressive renderer.
+  const FIXED_PATH_GAMEMODES = new Set(['AAS', 'Skirmish']);
+  function getFixedPath(layer) {
+    if (!FIXED_PATH_GAMEMODES.has(layer.gamemode)) return null;
     const cp = layer.capturePoints || {};
     const order = (cp.points || {}).pointsOrder || (cp.clusters || {}).pointsOrder;
     if (!Array.isArray(order) || !order.length) return null;
-    return { pointsOrder: order };
+    return { pointsOrder: order, mode: layer.gamemode };
+  }
+
+  function getAASPath(layer) {
+    return getFixedPath(layer);
   }
 
   // ---- Draw Objectives ----
@@ -883,17 +1109,19 @@
     const hasRaasLanes = Object.keys(lanes).length > 0;
     const isAAS = !!aasPath;
 
-    // For RAAS with no explicit lane: use captureSequence to filter remaining lanes.
-    // For RAAS with an explicit lane (activeLane): treat it as a fully-locked-in lane.
-    // For AAS: synthetic single path.
-    const lane = activeLane ? lanes[activeLane] : (aasPath && activeTeam ? aasPath : null);
-    const isRaasProgressive = hasRaasLanes && activeTeam && !activeLane;
+    // RAAS (and Invasion via getInvasionLanes) renders from the current
+    // capture progression. An explicit lane selection narrows the visible
+    // graph instead of replacing it.
+    const selectedRaasLane = activeLane ? lanes[activeLane] : null;
+    const lane = aasPath && activeTeam ? aasPath : null;
+    const isRaasProgressive = hasRaasLanes && activeTeam;
+    let progressionLanes = null;
 
     // Build a set of "active" objective keys for the current lane
     let activeObjKeys = null; // null = show all
     let capturedKeys = new Set();
     let nextOptionTokens = new Set(); // tokens that are clickable next-capture options
-    let lastCapturedToken = null;
+    let lastCapturedTokens = new Set();
 
     if (isAAS && activeTeam) {
       // AAS: all objectives are captured
@@ -901,12 +1129,14 @@
         capturedKeys.add(normalizeObjectiveToken(entry.key));
       }
     } else if (isRaasProgressive) {
-      // Progressive RAAS: walk captureSequence, then expose next options.
-      // If sequence doesn't match any lane prefix, fall back to free mode
-      // (any uncaptured cluster is a valid next option). This handles maps
-      // where the v9 lane data is stale vs the actual v10 graph.
+      // Progressive RAAS: walk captureSequence, then expose the remaining lane
+      // union or a selected lane filtered by the same progression. If the
+      // sequence doesn't match any lane prefix, fall back to free mode.
       const remainingLanes = getRemainingLanes(layer, captureSequence, activeTeam);
       const hasMatchingLanes = Object.keys(remainingLanes).length > 0;
+      progressionLanes = activeLane
+        ? (remainingLanes[activeLane] ? { [activeLane]: remainingLanes[activeLane] } : null)
+        : (hasMatchingLanes ? remainingLanes : null);
 
       // Always include mains as captured
       for (const entry of orderedObjectives) {
@@ -916,17 +1146,22 @@
       // Mark sequence as captured
       for (const tok of captureSequence) {
         capturedKeys.add(tok);
-        lastCapturedToken = tok;
+      }
+      const captureSteps = getCaptureSteps(captureSequence);
+      const lastStep = captureSteps[captureSteps.length - 1];
+      if (lastStep) {
+        lastCapturedTokens = new Set(lastStep.tokens);
       }
 
-      if (hasMatchingLanes) {
-        // Strict mode: filter to remaining lane union, next options from lane prefixes
-        activeObjKeys = getRemainingLanePointsUnion(layer, captureSequence, activeTeam);
+      if (progressionLanes) {
+        // Strict mode: filter to the visible lane set, with next options still
+        // derived from the active capture prefix.
+        activeObjKeys = getLanePointsUnionFromSet(progressionLanes, activeTeam);
         for (const entry of orderedObjectives) {
           const t = normalizeObjectiveToken(entry.key);
           if (/team[12]main/.test(t)) activeObjKeys.add(t);
         }
-        nextOptionTokens = getNextCaptureOptions(layer, captureSequence, activeTeam);
+        nextOptionTokens = getNextCaptureOptionsFromSet(progressionLanes, captureSequence, activeTeam);
       } else {
         // Free mode: show all clusters; uncaptured ones become next options
         activeObjKeys = null;
@@ -936,19 +1171,8 @@
           if (!capturedKeys.has(t)) nextOptionTokens.add(t);
         }
       }
-    } else if (lane && activeTeam) {
-      // Locked-in lane mode: all points in this lane are captured (player committed)
-      const laneKeys = getLaneObjectiveKeys(lane);
-      activeObjKeys = new Set(laneKeys);
-      const captureOrder = getLaneCaptureOrder(lane, activeTeam);
-      for (const tok of captureOrder) {
-        capturedKeys.add(tok);
-        lastCapturedToken = tok;
-      }
-      // Include mains as captured
-      for (const k of laneKeys) {
-        if (/team[12]main/.test(k)) capturedKeys.add(k);
-      }
+    } else if (selectedRaasLane) {
+      activeObjKeys = new Set(getLaneObjectiveKeys(selectedRaasLane));
     } else if (lane) {
       // Lane selected but no team — just highlight lane objectives
       activeObjKeys = new Set(getLaneObjectiveKeys(lane));
@@ -956,22 +1180,22 @@
 
     let pointIndex = 1;
     let laneBadgeNumbers = null;
-    if (lane || isRaasProgressive) {
-      // For progressive mode, build badge numbers from captureSequence + remaining union
+    if (lane || isRaasProgressive || selectedRaasLane) {
       laneBadgeNumbers = new Map();
-      let badgeIndex = 1;
       if (isRaasProgressive) {
-        // Captured points first (in order), then next options
-        for (const tok of captureSequence) {
-          if (!laneBadgeNumbers.has(tok)) laneBadgeNumbers.set(tok, badgeIndex++);
-        }
-        for (const tok of nextOptionTokens) {
-          if (!laneBadgeNumbers.has(tok)) laneBadgeNumbers.set(tok, badgeIndex++);
-        }
-      } else if (lane) {
+        // Step-numbered union: every cluster in any remaining lane gets its
+        // earliest team-perspective step. Captured points hold their sequence
+        // index. Matches the v9 RAAS overlay behavior.
+        const stepMap = progressionLanes
+          ? getLookaheadStepsFromSet(progressionLanes, captureSequence, activeTeam)
+          : new Map();
+        for (const [tok, step] of stepMap) laneBadgeNumbers.set(tok, step);
+      } else {
+        let badgeIndex = 1;
+        const badgeLane = selectedRaasLane || lane;
         const badgeOrder = activeTeam === 'team2'
-          ? [...(lane.pointsOrder || [])].reverse()
-          : [...(lane.pointsOrder || [])];
+          ? [...(badgeLane.pointsOrder || [])].reverse()
+          : [...(badgeLane.pointsOrder || [])];
         for (const name of badgeOrder) {
           const token = normalizeObjectiveToken(name);
           if (/team[12]main/.test(token) || laneBadgeNumbers.has(token)) continue;
@@ -1039,26 +1263,37 @@
       if (styleAsLane) {
         if (!isMain && isCaptured) {
           markerClass = activeTeam === 'team1' ? 'blufor' : 'redfor';
-          extraClass = (!isAAS && lastCapturedToken === entryToken) ? ' captured last-captured' : ' captured';
+          extraClass = (!isAAS && lastCapturedTokens.has(entryToken)) ? ' captured last-captured' : ' captured';
         } else if (!isMain && isNextOption) {
           markerClass = activeTeam === 'team1' ? 'blufor' : 'redfor';
           extraClass = ' next-capture';
         } else if (!isMain) {
-          // Future uncaptured (still possible in some remaining lane, or look-ahead)
-          if (!showAllLanePoints) continue;
+          // Future cluster still in some remaining lane — render as look-ahead.
           markerClass = 'neutral';
           extraClass = ' uncaptured';
         }
       }
 
-      const isUncaptured = extraClass.includes('uncaptured');
+      const isLookahead = extraClass.includes('uncaptured');
       const badgeNum = isMain
         ? null
         : (laneBadgeNumbers?.get(entryToken) ?? pointIndex++);
+      // In progressive RAAS, color look-ahead and next markers by their step
+      // (heatmap). Captured points use the captured-step color too so the
+      // visual chain reads as 1→2→3 instead of all-team-color.
+      const stepColorOverride = (isRaasProgressive && !isMain && Number.isFinite(badgeNum))
+        ? getStepColor(badgeNum)
+        : null;
+      const colorStyleSuffix = stepColorOverride
+        ? `;background:${stepColorOverride};border-color:${stepColorOverride};color:#1a1a14`
+        : '';
       const subPoints = getSubPoints(entry.objective);
 
-      // If this objective has individual sub-points, render each separately
-      if (subPoints.length > 1 && !isMain) {
+      // Render every sub-point separately for lane-based modes so the path
+      // structure is visible (each physical flag position is its own marker).
+      // Invasion enters this branch via getInvasionLanes() exposing fake lanes,
+      // which sets hasRaasLanes for layouts whose data lacks an explicit graph.
+      if (subPoints.length > 1 && !isMain && hasRaasLanes) {
         // For captured objectives, only show the sub-point the user selected
         const selectedSp = capturedSubPoints[entryToken];
         const pointsToRender = (isCaptured && selectedSp)
@@ -1073,18 +1308,17 @@
           if (!isCaptured && capturedPositionKeys.has(pkey)) continue;
           renderedPositionKeys.add(pkey);
 
-          const size = isUncaptured ? 24 : 26;
-          const badge = isUncaptured ? '' : badgeNum;
+          const size = isLookahead ? 32 : 36;
           const icon = L.divIcon({
             className: '',
-            html: `<div class="obj-marker ${markerClass}${extraClass}" style="width:${size}px;height:${size}px">${badge}</div>`,
+            html: `<div class="obj-marker ${markerClass}${extraClass}" style="width:${size}px;height:${size}px${colorStyleSuffix}">${badgeNum ?? ''}</div>`,
             iconSize: [size, size],
             iconAnchor: [size / 2, size / 2]
           });
 
           const marker = L.marker([sp.y, sp.x], { icon: icon });
 
-          if (!isUncaptured) {
+          if (shouldShowPermanentObjectiveLabel(sp.name)) {
             marker.bindTooltip(sp.name, {
               permanent: true,
               direction: 'top',
@@ -1094,24 +1328,19 @@
           }
 
           if (isNextOption && styleAsLane) {
-            // Next-capture: click to advance the capture sequence.
-            // Pass the physical position so any aliased clusters get captured too.
+            // Next-capture: click to advance the capture sequence. The helper
+            // walks any aliased clusters at this physical position and writes
+            // their sub-point records too.
             marker.on('click', () => {
-              capturedSubPoints[entryToken] = { x: sp.x, y: sp.y, name: sp.name };
-              // Also pre-set sub-point for any aliased clusters at this position
-              const aliases = findClustersAtPosition(layer, sp.x, sp.y);
-              for (const t of aliases) {
-                if (t !== entryToken) capturedSubPoints[t] = { x: sp.x, y: sp.y, name: sp.name };
-              }
-              advanceCaptureSequence(layer, entryToken, { x: sp.x, y: sp.y });
+              advanceCaptureSequence(layer, entryToken, { x: sp.x, y: sp.y, name: sp.name });
             });
-          } else if (isCaptured && lastCapturedToken === entryToken && styleAsLane && !isAAS) {
+          } else if (isCaptured && lastCapturedTokens.has(entryToken) && styleAsLane && !isAAS) {
             // Last captured: click to uncapture
             marker.on('click', () => {
               delete capturedSubPoints[entryToken];
               retreatCaptureSequence(layer);
             });
-          } else if (!isUncaptured) {
+          } else if (!isLookahead) {
             marker.bindPopup(`<b>${escapeHtml(sp.name)}</b>`);
           }
 
@@ -1122,65 +1351,76 @@
           ? { x: selectedSp.x, y: selectedSp.y }
           : entry.position;
         if (styleAsLane) {
-          lanePositions.push({ pos: linePos, token: entryToken, isCaptured, isNext: isNextOption });
+          lanePositions.push({ pos: linePos, token: entryToken, isCaptured, isNext: isNextOption, step: badgeNum });
         }
       } else {
-        // Single-point objective or main base
-        // Skip dedup for mains; they're always rendered.
+        // Single-point objective or main base. Dedupe by physical position so
+        // two clusters sharing a point (e.g. A1 and D1 both at Trudove
+        // Outskirts) only render one marker — but ALWAYS push to lanePositions
+        // so drawLaneLines can still find the token when walking pointsOrder,
+        // otherwise the line jumps over the deduped cluster entirely.
+        let skipMarker = false;
         if (!isMain) {
           const pkey = positionKey(entry.position.x, entry.position.y);
-          if (renderedPositionKeys.has(pkey)) continue;
-          if (!isCaptured && capturedPositionKeys.has(pkey)) continue;
-          renderedPositionKeys.add(pkey);
-        }
-        const isActiveMain = isMain && extraClass.includes('active-main');
-        const size = isMain ? (isActiveMain ? 40 : 32) : (isUncaptured ? 24 : 28);
-        const badgeText = isMain ? 'M' : (isUncaptured ? '' : String(badgeNum));
-
-        const icon = L.divIcon({
-          className: '',
-          html: `<div class="obj-marker ${markerClass}${extraClass}" style="width:${size}px;height:${size}px">${badgeText}</div>`,
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size / 2]
-        });
-
-        const marker = L.marker(
-          [entry.position.y, entry.position.x],
-          { icon: icon }
-        );
-
-        if (!isUncaptured) {
-          marker.bindTooltip(entry.label, {
-            permanent: true,
-            direction: 'top',
-            offset: [0, -size / 2 - 2],
-            className: 'obj-label'
-          });
+          if (renderedPositionKeys.has(pkey)) {
+            skipMarker = true;
+          } else if (!isCaptured && capturedPositionKeys.has(pkey)) {
+            skipMarker = true;
+          } else {
+            renderedPositionKeys.add(pkey);
+          }
         }
 
-        if (isNextOption && styleAsLane) {
-          // Next-capture: click to advance the capture sequence
-          marker.on('click', () => {
-            advanceCaptureSequence(layer, entryToken, entry.position);
-          });
-        } else if (isCaptured && lastCapturedToken === entryToken && styleAsLane && !isAAS) {
-          // Last captured: click to uncapture
-          marker.on('click', () => {
-            retreatCaptureSequence(layer);
-          });
-        } else if (isMain) {
-          marker.on('click', () => {
-            const nextTeam = entryToken === 'team1main' ? 'team1' : 'team2';
-            setActiveTeam(nextTeam, layer);
-          });
-        } else if (!isUncaptured) {
-          marker.bindPopup(`<b>${escapeHtml(entry.label)}</b>`);
-        }
+        if (!skipMarker) {
+          const isActiveMain = isMain && extraClass.includes('active-main');
+          const size = isMain ? (isActiveMain ? 48 : 40) : (isLookahead ? 34 : 38);
+          const badgeText = isMain ? 'M' : String(badgeNum);
 
-        marker.addTo(markerGroup);
+          const icon = L.divIcon({
+            className: '',
+            html: `<div class="obj-marker ${markerClass}${extraClass}" style="width:${size}px;height:${size}px${colorStyleSuffix}">${badgeText}</div>`,
+            iconSize: [size, size],
+            iconAnchor: [size / 2, size / 2]
+          });
+
+          const marker = L.marker(
+            [entry.position.y, entry.position.x],
+            { icon: icon }
+          );
+
+          if (shouldShowPermanentObjectiveLabel(entry.label)) {
+            marker.bindTooltip(entry.label, {
+              permanent: true,
+              direction: 'top',
+              offset: [0, -size / 2 - 2],
+              className: 'obj-label'
+            });
+          }
+
+          if (isNextOption && styleAsLane) {
+            // Next-capture: click to advance the capture sequence
+            marker.on('click', () => {
+              advanceCaptureSequence(layer, entryToken, entry.position);
+            });
+          } else if (isCaptured && lastCapturedTokens.has(entryToken) && styleAsLane && !isAAS) {
+            // Last captured: click to uncapture
+            marker.on('click', () => {
+              retreatCaptureSequence(layer);
+            });
+          } else if (isMain) {
+            marker.on('click', () => {
+              const nextTeam = entryToken === 'team1main' ? 'team1' : 'team2';
+              setActiveTeam(nextTeam, layer, { allowToggleOff: true });
+            });
+          } else if (!isLookahead) {
+            marker.bindPopup(`<b>${escapeHtml(entry.label)}</b>`);
+          }
+
+          marker.addTo(markerGroup);
+        }
 
         if (styleAsLane) {
-          lanePositions.push({ pos: entry.position, token: entryToken, isCaptured, isNext: isNextOption });
+          lanePositions.push({ pos: entry.position, token: entryToken, isCaptured, isNext: isNextOption, step: badgeNum });
         }
       }
     }
@@ -1192,13 +1432,12 @@
       } else {
         drawLaneLines(lane, lanePositions);
       }
+    } else if (selectedRaasLane && !activeTeam && lanePositions.length > 1) {
+      drawLaneLines(selectedRaasLane, lanePositions);
     } else if (isRaasProgressive && lanePositions.length > 1) {
-      // Draw lines for each remaining lane (overlap is fine — same color)
-      const remaining = getRemainingLanes(layer, captureSequence, activeTeam);
-      const posByToken = {};
-      for (const lp of lanePositions) posByToken[lp.token] = lp;
-      for (const rlane of Object.values(remaining)) {
-        drawLaneLines(rlane, lanePositions);
+      // Draw lines for each visible lane (union or explicit lane filter).
+      for (const rlane of Object.values(progressionLanes || {})) {
+        drawLaneLines(rlane, lanePositions, { stepColored: true });
       }
     }
   }
@@ -1207,12 +1446,21 @@
   // have a sub-point at that position are captured together (handles shared
   // physical flags across cluster IDs, e.g. Manicouagan Cannabis Farm).
   // The clicked token leads, with aliases following so retreat removes them all.
+  // `position` may carry a `name` to seed the sub-point label for fresh aliases.
   function advanceCaptureSequence(layer, token, position) {
     let aliases = [token];
     if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) {
       const found = findClustersAtPosition(layer, position.x, position.y);
       found.delete(token);
       aliases = [token, ...found];
+      const seedName = position.name || '';
+      for (const alias of aliases) {
+        capturedSubPoints[alias] = {
+          x: position.x,
+          y: position.y,
+          name: capturedSubPoints[alias]?.name || seedName
+        };
+      }
     }
     // Filter out any aliases already captured
     const captured = new Set(captureSequence);
@@ -1225,19 +1473,84 @@
 
   function retreatCaptureSequence(layer) {
     if (captureSequence.length === 0) return;
-    // Pop the last "capture step" — find the last clicked token and any
-    // aliases that came with it. Heuristic: pop until we hit a token whose
-    // sub-point selection differs (if available).
-    const popped = captureSequence[captureSequence.length - 1];
-    captureSequence = captureSequence.slice(0, -1);
-    delete capturedSubPoints[popped];
+    const steps = getCaptureSteps(captureSequence);
+    const lastStep = steps[steps.length - 1];
+    if (!lastStep) return;
+    captureSequence = captureSequence.slice(0, -lastStep.tokens.length);
+    for (const token of lastStep.tokens) {
+      delete capturedSubPoints[token];
+    }
     renderTopPanel(layer);
     redrawMarkers(layer);
   }
 
+  function resetLaneLineAnimations() {
+    animatedLaneLines = [];
+    lastLaneAnimationTs = 0;
+    if (laneAnimationFrameId !== null) {
+      cancelAnimationFrame(laneAnimationFrameId);
+      laneAnimationFrameId = null;
+    }
+  }
+
+  function stepLaneLineAnimations(timestamp) {
+    if (!animatedLaneLines.length) {
+      laneAnimationFrameId = null;
+      lastLaneAnimationTs = 0;
+      return;
+    }
+
+    if (!lastLaneAnimationTs) {
+      lastLaneAnimationTs = timestamp;
+    }
+    const delta = timestamp - lastLaneAnimationTs;
+    lastLaneAnimationTs = timestamp;
+
+    animatedLaneLines = animatedLaneLines.filter((entry) => {
+      if (!entry.path || !entry.path.isConnected) return false;
+      entry.offset -= delta * entry.speed;
+      entry.path.style.strokeDashoffset = `${entry.offset}`;
+      return true;
+    });
+
+    laneAnimationFrameId = requestAnimationFrame(stepLaneLineAnimations);
+  }
+
+  function applyLaneLineAnimation(polyline, options = {}) {
+    const { dashArray = null, isNext = false } = options;
+    if (!dashArray) return;
+
+    const registerPath = (attempt = 0) => {
+      const path = polyline.getElement();
+      if (!path) {
+        if (attempt < 4) {
+          requestAnimationFrame(() => registerPath(attempt + 1));
+        }
+        return;
+      }
+
+      path.style.strokeDasharray = dashArray;
+      path.style.strokeDashoffset = '0';
+      path.style.animation = 'none';
+      animatedLaneLines.push({
+        path,
+        offset: 0,
+        speed: isNext ? 0.045 : 0.024
+      });
+      if (laneAnimationFrameId === null) {
+        laneAnimationFrameId = requestAnimationFrame(stepLaneLineAnimations);
+      }
+    };
+
+    registerPath();
+  }
+
   // Draw lines connecting objectives along the lane in order
-  function drawLaneLines(lane, lanePositions) {
-    const order = lane.pointsOrder || [];
+  function drawLaneLines(lane, lanePositions, options = {}) {
+    const { stepColored = false } = options;
+    const order = (activeTeam === 'team2')
+      ? [...(lane.pointsOrder || [])].reverse()
+      : (lane.pointsOrder || []);
     const posByToken = {};
     for (const lp of lanePositions) {
       posByToken[lp.token] = lp;
@@ -1256,42 +1569,65 @@
       const from = orderedPos[i];
       const to = orderedPos[i + 1];
 
-      const fromActive = from.isCaptured || from.isNext;
-      const toActive = to.isCaptured || to.isNext;
-
-      // Skip segments that go beyond the next-capture point (unless showAll is on)
-      if (!fromActive && !showAllLanePoints) continue;
-      if (!toActive && !showAllLanePoints) continue;
-
       const fromLL = [from.pos.y, from.pos.x];
       const toLL = [to.pos.y, to.pos.x];
 
-      const teamHex = activeTeam === 'team1' ? '#4a7a3a' : '#8b4513';
       let color = '#ccc';
       let weight = 3;
-      let opacity = 0.8;
+      let opacity = 0.85;
       let dashArray = null;
+      let className = 'lane-line';
 
-      if (activeTeam) {
+      if (stepColored) {
+        // Progressive RAAS look-ahead: color each segment by the destination
+        // step in the team's progression. Captured→captured stays solid;
+        // any segment touching look-ahead points fades + dashes.
+        const destStep = to.step;
+        color = getStepColor(destStep);
+        if (from.isCaptured && to.isCaptured) {
+          weight = 3.6;
+          opacity = 0.92;
+          className += ' lane-line-captured';
+        } else if (to.isNext || from.isNext) {
+          weight = 3.2;
+          opacity = 0.88;
+          dashArray = '10 8';
+          className += ' lane-line-ants lane-line-next';
+        } else {
+          weight = 2.8;
+          opacity = 0.62;
+          dashArray = '6 8';
+          className += ' lane-line-ants lane-line-future';
+        }
+      } else if (activeTeam) {
+        const teamHex = activeTeam === 'team1' ? '#4a7a3a' : '#8b4513';
         if (from.isCaptured && to.isCaptured) {
           color = teamHex;
+          weight = 3.4;
+          className += ' lane-line-captured';
         } else if ((from.isCaptured && to.isNext) || (from.isNext && to.isCaptured)) {
           color = '#d2aa50';
-          dashArray = '8 6';
-          opacity = 0.7;
+          dashArray = '10 8';
+          opacity = 0.78;
+          weight = 3;
+          className += ' lane-line-ants lane-line-next';
         } else {
-          // Uncaptured segments (showAll mode) — faint military red
           color = '#8b2e1e';
-          weight = 2.25;
-          opacity = 0.45;
-          dashArray = '4 6';
+          weight = 2.6;
+          opacity = 0.52;
+          dashArray = '6 8';
+          className += ' lane-line-ants lane-line-future';
         }
       }
 
-      const lineOpts = { color, weight, opacity };
+      const lineOpts = { color, weight, opacity, className };
       if (dashArray) lineOpts.dashArray = dashArray;
 
-      L.polyline([fromLL, toLL], lineOpts).addTo(markerGroup);
+      const polyline = L.polyline([fromLL, toLL], lineOpts).addTo(markerGroup);
+      applyLaneLineAnimation(polyline, {
+        dashArray,
+        isNext: className.includes('lane-line-next')
+      });
     }
   }
 
@@ -1325,8 +1661,59 @@
     const border = layer.border || [];
     if (border.length < 3) return;
 
-    const latlngs = border.map(p => [p.location_y, p.location_x]);
-    // Close the polygon
+    // Some maps (Sanxian_AAS_v1-v3) have border polygons whose extent exceeds
+    // the mapTextureCorners because the minimap texture file is narrower than
+    // the playable area. Clip the polygon to the texture rect so dashed lines
+    // don't float off into the black beyond the map image.
+    const corners = layer.mapTextureCorners || [];
+    let clip = null;
+    if (corners.length >= 2) {
+      const xs = corners.map(c => c.location_x);
+      const ys = corners.map(c => c.location_y);
+      clip = {
+        xmin: Math.min(...xs), xmax: Math.max(...xs),
+        ymin: Math.min(...ys), ymax: Math.max(...ys),
+      };
+    }
+
+    // Sutherland–Hodgman polygon clipping against the (axis-aligned) texture rect.
+    const clipBorder = (poly, rect) => {
+      if (!rect || poly.length < 3) return poly;
+      const lerp = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+      const clipEdge = (input, edge) => {
+        const out = [];
+        for (let i = 0; i < input.length; i++) {
+          const curr = input[i];
+          const prev = input[(i + input.length - 1) % input.length];
+          const currIn = edge.inside(curr);
+          const prevIn = edge.inside(prev);
+          if (currIn) {
+            if (!prevIn) out.push(edge.intersect(prev, curr));
+            out.push(curr);
+          } else if (prevIn) {
+            out.push(edge.intersect(prev, curr));
+          }
+        }
+        return out;
+      };
+      const edges = [
+        { inside: p => p.x >= rect.xmin, intersect: (a, b) => lerp(a, b, (rect.xmin - a.x) / (b.x - a.x)) },
+        { inside: p => p.x <= rect.xmax, intersect: (a, b) => lerp(a, b, (rect.xmax - a.x) / (b.x - a.x)) },
+        { inside: p => p.y >= rect.ymin, intersect: (a, b) => lerp(a, b, (rect.ymin - a.y) / (b.y - a.y)) },
+        { inside: p => p.y <= rect.ymax, intersect: (a, b) => lerp(a, b, (rect.ymax - a.y) / (b.y - a.y)) },
+      ];
+      let out = poly.map(p => ({ x: p.location_x, y: p.location_y }));
+      for (const edge of edges) {
+        out = clipEdge(out, edge);
+        if (out.length === 0) return [];
+      }
+      return out.map(p => ({ location_x: p.x, location_y: p.y }));
+    };
+
+    const clipped = clipBorder(border, clip);
+    if (clipped.length < 3) return;
+
+    const latlngs = clipped.map(p => [p.location_y, p.location_x]);
     latlngs.push(latlngs[0]);
 
     L.polyline(latlngs, {
@@ -1339,9 +1726,8 @@
 
   // ---- Draw TC Hex Zones ----
   function drawTCHexZones(layer) {
+    if (layer.gamemode !== 'Territory Control') return;
     const cp = layer.capturePoints || {};
-    if (cp.type !== 'TC Hex Zone') return;
-
     const hexsData = cp.hexs || {};
     const hexList = hexsData.hexs || [];
     if (!hexList.length) return;
@@ -1400,6 +1786,17 @@
       polygon.bindTooltip(tooltip, { sticky: true, className: 'hex-tooltip' });
 
       polygon.addTo(markerGroup);
+
+      // Permanent hex-number label centered on the hex (matches v9).
+      if (Number.isFinite(hex.hexNum)) {
+        const label = L.divIcon({
+          className: '',
+          html: `<div class="tc-hex-label">${hex.hexNum}</div>`,
+          iconSize: [22, 14],
+          iconAnchor: [11, 7],
+        });
+        L.marker([cy, cx], { icon: label, interactive: false }).addTo(markerGroup);
+      }
     }
 
     // Draw main base markers from points.objectives
@@ -1426,6 +1823,30 @@
         className: 'obj-label'
       });
       marker.addTo(markerGroup);
+    }
+  }
+
+  // ---- Draw Insurgency Caches ----
+  // Insurgency layers list every possible cache spawn position in
+  // capturePoints.objectiveSpawnLocations (BP_DestroyableObjective actors).
+  // The game randomly picks ~5 of these per match; the map shows all of them
+  // so the player knows where caches *can* be.
+  function drawInsurgencyCaches(layer) {
+    if (layer.gamemode !== 'Insurgency') return;
+    const cp = layer.capturePoints || {};
+    const spawns = cp.objectiveSpawnLocations || [];
+    if (!spawns.length) return;
+
+    for (const spawn of spawns) {
+      if (!Number.isFinite(spawn.location_x) || !Number.isFinite(spawn.location_y)) continue;
+      const icon = L.divIcon({
+        className: '',
+        html: `<div class="cache-marker"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.5-7 10-7 10z"/></svg></div>`,
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
+      });
+      L.marker([spawn.location_y, spawn.location_x], { icon, interactive: false })
+        .addTo(markerGroup);
     }
   }
 
@@ -2042,9 +2463,10 @@
 
   // ---- Go Back ----
   function goBack() {
-    // Reset HAB tool state
-    if (habToolActive) toggleHabTool();
     clearAllHabs();
+    // Reset mortar tool state
+    clearMortar();
+    closeMapContextMenu();
 
     if (leafletMap) {
       leafletMap.remove();
@@ -2073,24 +2495,6 @@
   }
 
   // ---- Events ----
-  // ---- HAB Placement Tool ----
-  function toggleHabTool() {
-    habToolActive = !habToolActive;
-    document.getElementById('hab-tool-btn').classList.toggle('active', habToolActive);
-    document.getElementById('hab-controls').classList.toggle('hidden', !habToolActive);
-
-    if (leafletMap) {
-      leafletMap.getContainer().classList.toggle('hab-cursor', habToolActive);
-    }
-  }
-
-  function setHabTeam(team) {
-    habPlacementTeam = team;
-    document.querySelectorAll('.hab-team-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.team === team);
-    });
-  }
-
   function initHabLayer() {
     if (habLayerGroup) {
       habLayerGroup.clearLayers();
@@ -2099,15 +2503,470 @@
     placedHabs = [];
   }
 
-  function handleMapClick(e) {
-    if (!habToolActive) return;
-
+  function handleMapDblClick(e) {
+    // Double-click anywhere: mortar placement. First dblclick = mortar,
+    // next = target, further = move target. FOB tool is independent and
+    // still uses single click.
     const latlng = e.latlng;
-    // UE coords: lng = x, lat = y
     const ueX = latlng.lng;
     const ueY = latlng.lat;
+    handleMortarDblClick(ueX, ueY);
+  }
 
-    placeHab(ueX, ueY, habPlacementTeam);
+  // ---------------------------------------------------------------------
+  // Indirect-fire tool
+  // ---------------------------------------------------------------------
+
+  async function loadHeightmap(layer) {
+    const key = HEIGHTMAP_FILES[layer.mapId];
+    if (!key) return null;
+    if (heightmapCache[key]) return heightmapCache[key];
+    try {
+      const res = await fetch(`data/heightmaps/${key}.json`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      heightmapCache[key] = data;
+      return data;
+    } catch (err) {
+      console.warn('heightmap load failed', key, err);
+      return null;
+    }
+  }
+
+  function getHeightmapBounds(layer) {
+    const corners = layer.mapTextureCorners || [];
+    if (corners.length < 2) return null;
+    const xs = corners.map(c => c.location_x);
+    const ys = corners.map(c => c.location_y);
+    return {
+      xmin: Math.min(...xs), xmax: Math.max(...xs),
+      ymin: Math.min(...ys), ymax: Math.max(...ys),
+    };
+  }
+
+  // Heightmap row/col lookup with bilinear interpolation.
+  // `data` is 500x500 float meters. `worldX`/`worldY` are UE units.
+  function sampleHeight(data, layer, worldX, worldY) {
+    if (!data || !data.length) return 0;
+    const b = getHeightmapBounds(layer);
+    if (!b) return 0;
+    const rows = data.length;
+    const cols = data[0].length;
+    const col = ((worldX - b.xmin) / (b.xmax - b.xmin)) * (cols - 1);
+    // Row 0 is at ymax (north) — UE +Y is north in our Leaflet setup.
+    const row = ((b.ymax - worldY) / (b.ymax - b.ymin)) * (rows - 1);
+    if (col < 0 || col > cols - 1 || row < 0 || row > rows - 1) return 0;
+    const r0 = Math.floor(row), r1 = Math.min(rows - 1, r0 + 1);
+    const c0 = Math.floor(col), c1 = Math.min(cols - 1, c0 + 1);
+    const fr = row - r0, fc = col - c0;
+    const h00 = data[r0][c0], h01 = data[r0][c1];
+    const h10 = data[r1][c0], h11 = data[r1][c1];
+    return (1 - fr) * ((1 - fc) * h00 + fc * h01) +
+                fr  * ((1 - fc) * h10 + fc * h11);
+  }
+
+  function computeFiringSolution(mortar, target, hMortar, hTarget) {
+    // UE units to meters
+    const dxM = (target.ueX - mortar.ueX) / 100;
+    const dyM = (target.ueY - mortar.ueY) / 100;
+    const dist = Math.hypot(dxM, dyM);
+    // Bearing: 0deg = North (+Y), 90deg = East (+X), clockwise
+    let bearing = Math.atan2(dxM, dyM) * 180 / Math.PI;
+    if (bearing < 0) bearing += 360;
+
+    const v = MORTAR.velocity;
+    const g = MORTAR.gravity;
+    // Mortar tube sits ~1m off the ground — apply heightOffset to the mortar side.
+    const hDiff = hTarget - (hMortar + (MORTAR.heightOffset || 0));
+    const v2 = v * v;
+    const v4 = v2 * v2;
+    const inner = v4 - g * (g * dist * dist + 2 * hDiff * v2);
+
+    const result = { dist, bearing, hDiff, hMortar, hTarget, inRange: false };
+    if (inner < 0 || dist <= 0) return result;
+
+    const P = Math.sqrt(inner);
+    const lowRad = Math.atan((v2 - P) / (g * dist));
+    const highRad = Math.atan((v2 + P) / (g * dist));
+    const toDeg = (r) => r * 180 / Math.PI;
+    const toMil = (r) => r * 3200 / Math.PI; // NATO mil (6400 mils = 360deg)
+
+    const lowDeg = toDeg(lowRad);
+    const highDeg = toDeg(highRad);
+    const inBand = (d) => d >= MORTAR.minElevationDeg && d <= MORTAR.maxElevationDeg;
+
+    result.inRange = true;
+    result.low = inBand(lowDeg) ? { deg: lowDeg, mil: toMil(lowRad) } : null;
+    result.high = inBand(highDeg) ? { deg: highDeg, mil: toMil(highRad) } : null;
+    return result;
+  }
+
+  function initMortarLayer() {
+    if (mortarLayerGroup) mortarLayerGroup.clearLayers();
+    mortarLayerGroup = L.layerGroup().addTo(leafletMap);
+    mortarPosition = null;
+    targetPositions = [];
+  }
+
+  async function handleMortarDblClick(ueX, ueY) {
+    const layer = currentLayer();
+    if (!layer) return;
+    const hm = await loadHeightmap(layer);
+    if (!hm) return;  // silent; some maps we don't have heightmaps for
+    // First dblclick = mortar. Each subsequent dblclick adds a new target.
+    if (!mortarPosition) {
+      mortarPosition = { ueX, ueY };
+      targetPositions = [];
+    } else {
+      targetPositions.push({ ueX, ueY });
+    }
+    renderMortarOverlay(hm, layer);
+  }
+
+  function clearMortar() {
+    if (mortarLayerGroup) mortarLayerGroup.clearLayers();
+    mortarPosition = null;
+    targetPositions = [];
+    mortarRefs.marker = null;
+    mortarRefs.rangeCircle = null;
+    mortarRefs.targets = [];
+    const panel = document.getElementById('mortar-panel');
+    if (panel) panel.classList.add('hidden');
+  }
+
+  // ---------------------------------------------------------------------
+  // Right-click context menu (GIS-style tool picker)
+  // ---------------------------------------------------------------------
+
+  function openMapContextMenu(e) {
+    if (e.originalEvent) e.originalEvent.preventDefault();
+    const menu = document.getElementById('map-context-menu');
+    if (!menu) return;
+    ctxMenuLatLng = e.latlng;
+
+    // Update enabled state based on current tool state.
+    const hasMortar = !!mortarPosition;
+    const hasHabs = placedHabs.length > 0;
+    const hasMortarAny = !!mortarPosition || targetPositions.length > 0;
+    menu.querySelector('[data-action="mortar-target"]').disabled = !hasMortar;
+    menu.querySelector('[data-action="clear-habs"]').disabled = !hasHabs;
+    menu.querySelector('[data-action="clear-mortar"]').disabled = !hasMortarAny;
+
+    // Unhide first so we can measure, then clamp to the map container.
+    menu.classList.remove('hidden');
+    const container = leafletMap.getContainer();
+    const rect = container.getBoundingClientRect();
+    const rawX = e.originalEvent.clientX - rect.left;
+    const rawY = e.originalEvent.clientY - rect.top;
+    const menuRect = menu.getBoundingClientRect();
+    let x = rawX;
+    let y = rawY;
+    if (x + menuRect.width > rect.width) x = rect.width - menuRect.width - 4;
+    if (y + menuRect.height > rect.height) y = rect.height - menuRect.height - 4;
+    menu.style.left = `${Math.max(4, x)}px`;
+    menu.style.top = `${Math.max(4, y)}px`;
+  }
+
+  function closeMapContextMenu() {
+    const menu = document.getElementById('map-context-menu');
+    if (!menu || menu.classList.contains('hidden')) return;
+    menu.classList.add('hidden');
+    ctxMenuLatLng = null;
+    // Swallow the follow-up Leaflet click so dismissing the menu by clicking
+    // empty map doesn't also place a FOB (when the legacy FOB tool is active).
+    ctxMenuJustClosed = true;
+    setTimeout(() => { ctxMenuJustClosed = false; }, 50);
+  }
+
+  async function handleMapContextAction(action) {
+    if (!ctxMenuLatLng) return;
+    const latlng = ctxMenuLatLng;
+    closeMapContextMenu();
+    const ueX = latlng.lng;
+    const ueY = latlng.lat;
+    switch (action) {
+      case 'hab':
+        placeHab(ueX, ueY, 'team1');
+        break;
+      case 'mortar-place': {
+        const layer = currentLayer();
+        if (!layer) return;
+        const hm = await loadHeightmap(layer);
+        if (!hm) return;
+        clearMortar();
+        mortarPosition = { ueX, ueY };
+        targetPositions = [];
+        renderMortarOverlay(hm, layer);
+        break;
+      }
+      case 'mortar-target': {
+        const layer = currentLayer();
+        if (!layer || !mortarPosition) return;
+        const hm = await loadHeightmap(layer);
+        if (!hm) return;
+        targetPositions.push({ ueX, ueY });
+        renderMortarOverlay(hm, layer);
+        break;
+      }
+      case 'clear-habs':
+        clearAllHabs();
+        break;
+      case 'clear-mortar':
+        clearMortar();
+        break;
+    }
+  }
+
+  // Flat-ground max range for the current mortar, in meters.
+  // v^2/g is the theoretical max at 45° elevation on flat ground.
+  function mortarMaxRangeFlatM() {
+    return (MORTAR.velocity * MORTAR.velocity) / MORTAR.gravity;
+  }
+
+  // Gold reticle centered exactly on the weapon position. Anchor is the
+  // geometric centre so firing solutions, range circle and heightmap sample
+  // all reference the same point the user sees.
+  function mortarIcon() {
+    return L.divIcon({
+      className: '',
+      html: `<div class="mortar-marker" title="${MORTAR.name}">
+        <svg viewBox="0 0 26 26" width="26" height="26">
+          <circle class="reticle-ring" cx="13" cy="13" r="10"/>
+          <line class="reticle-tick" x1="13" y1="1" x2="13" y2="6"/>
+          <line class="reticle-tick" x1="13" y1="20" x2="13" y2="25"/>
+          <line class="reticle-tick" x1="1" y1="13" x2="6" y2="13"/>
+          <line class="reticle-tick" x1="20" y1="13" x2="25" y2="13"/>
+          <circle class="reticle-dot" cx="13" cy="13" r="1.5"/>
+        </svg>
+      </div>`,
+      iconSize: [26, 26], iconAnchor: [13, 13],
+    });
+  }
+
+  function targetIcon(inRange) {
+    // Centered red dot — the anchor IS the target. Damage radius ring lives
+    // separately in renderMortarOverlay so it stays fixed on the same point.
+    return L.divIcon({
+      className: '',
+      html: `<div class="target-pin ${inRange ? '' : 'oor'}">
+        <svg viewBox="0 0 14 14" width="14" height="14">
+          <circle class="target-dot" cx="7" cy="7" r="5"/>
+          <circle class="target-pip" cx="7" cy="7" r="1.2"/>
+        </svg>
+      </div>`,
+      iconSize: [14, 14], iconAnchor: [7, 7],
+    });
+  }
+
+  function targetTooltipHtml(sol) {
+    // Three-line tooltip: distance, bearing, firing elevation in mils.
+    const dist = `${Math.round(sol.dist)}m`;
+    const bear = `${sol.bearing.toFixed(0)}&deg;`;
+    let elev;
+    if (!sol.inRange) elev = '<span class="mortar-oor-tt">OOR</span>';
+    else if (sol.high) elev = `${sol.high.mil.toFixed(0)} mil`;
+    else if (sol.low) elev = `${sol.low.mil.toFixed(0)} mil`;
+    else elev = '<span class="mortar-oor-tt">OOR</span>';
+    return `${dist}<br>${bear}<br>${elev}`;
+  }
+
+  // Compute solutions for every target from the current mortar + heightmap,
+  // returning a parallel array aligned with targetPositions.
+  function computeAllSolutions(hm, layer) {
+    if (!mortarPosition || !hm) return [];
+    const hMortar = sampleHeight(hm, layer, mortarPosition.ueX, mortarPosition.ueY);
+    return targetPositions.map((t) => {
+      const hTarget = sampleHeight(hm, layer, t.ueX, t.ueY);
+      return computeFiringSolution(mortarPosition, t, hMortar, hTarget);
+    });
+  }
+
+  // Recompute solutions and update every dependent visual (range circle
+  // center, lines, target tooltips, result panel) in place — no full
+  // re-render so drag state survives.
+  function refreshMortarVisuals(hm, layer) {
+    if (!mortarLayerGroup || !mortarPosition) return;
+    if (mortarRefs.rangeCircle) {
+      mortarRefs.rangeCircle.setLatLng([mortarPosition.ueY, mortarPosition.ueX]);
+    }
+    const sols = computeAllSolutions(hm, layer);
+    for (let i = 0; i < mortarRefs.targets.length; i++) {
+      const ref = mortarRefs.targets[i];
+      const sol = sols[i];
+      const t = targetPositions[i];
+      if (!ref || !sol || !t) continue;
+      if (ref.line) {
+        ref.line.setLatLngs([
+          [mortarPosition.ueY, mortarPosition.ueX],
+          [t.ueY, t.ueX],
+        ]);
+      }
+      if (ref.damageCircle) {
+        ref.damageCircle.setLatLng([t.ueY, t.ueX]);
+      }
+      if (ref.marker) {
+        ref.marker.setTooltipContent(targetTooltipHtml(sol));
+        const el = ref.marker.getElement();
+        if (el) {
+          const pin = el.querySelector('.target-pin');
+          if (pin) pin.classList.toggle('oor', !sol.inRange);
+        }
+      }
+    }
+    updateMortarResultPanel(sols);
+  }
+
+  function renderMortarOverlay(hm, layer) {
+    if (mortarLayerGroup) mortarLayerGroup.clearLayers();
+    if (!mortarLayerGroup) mortarLayerGroup = L.layerGroup().addTo(leafletMap);
+    mortarRefs.marker = null;
+    mortarRefs.rangeCircle = null;
+    mortarRefs.targets = [];
+
+    if (!mortarPosition) {
+      updateMortarResultPanel([]);
+      return;
+    }
+
+    const m = mortarPosition;
+
+    // Max-range circle (flat-ground, meters -> UE units x100).
+    const maxRangeUE = mortarMaxRangeFlatM() * 100;
+    mortarRefs.rangeCircle = L.circle([m.ueY, m.ueX], {
+      radius: maxRangeUE,
+      color: '#6fc3df',
+      weight: 1.5,
+      opacity: 0.65,
+      fillColor: '#6fc3df',
+      fillOpacity: 0.05,
+      interactive: false,
+      className: 'mortar-range-circle',
+    }).addTo(mortarLayerGroup);
+
+    // Draggable mortar pin
+    mortarRefs.marker = L.marker([m.ueY, m.ueX], {
+      icon: mortarIcon(),
+      draggable: true,
+      autoPan: true,
+    }).addTo(mortarLayerGroup);
+
+    mortarRefs.marker.on('drag', (e) => {
+      const ll = e.target.getLatLng();
+      mortarPosition = { ueX: ll.lng, ueY: ll.lat };
+      refreshMortarVisuals(hm, layer);
+    });
+
+    // Click the mortar pin to clear the whole session (matches HAB UX).
+    mortarRefs.marker.on('click', (e) => {
+      L.DomEvent.stopPropagation(e);
+      clearMortar();
+    });
+
+    mortarRefs.marker.bindTooltip('Click to remove', {
+      direction: 'top',
+      offset: [0, -14],
+      className: 'obj-label',
+    });
+
+    // Right-click the pin to toggle the max-range circle on/off.
+    mortarRefs.marker.on('contextmenu', (e) => {
+      L.DomEvent.stopPropagation(e);
+      L.DomEvent.preventDefault(e);
+      if (!mortarRefs.rangeCircle) return;
+      const el = mortarRefs.rangeCircle.getElement();
+      if (el) el.classList.toggle('hidden');
+    });
+
+    // Targets: each independent, each draggable, each with own line + tooltip
+    // + damage-radius circle.
+    const damageRadiusUE = MORTAR.damageRadiusM * 100;
+    const sols = computeAllSolutions(hm, layer);
+    for (let i = 0; i < targetPositions.length; i++) {
+      const t = targetPositions[i];
+      const sol = sols[i];
+
+      const line = L.polyline(
+        [[mortarPosition.ueY, mortarPosition.ueX], [t.ueY, t.ueX]],
+        { color: '#e35b4a', weight: 2, opacity: 0.85, dashArray: '8 5', interactive: false }
+      ).addTo(mortarLayerGroup);
+
+      // Damage radius (40m kill zone) — red dashed ring with faint fill.
+      const damageCircle = L.circle([t.ueY, t.ueX], {
+        radius: damageRadiusUE,
+        color: '#e35b4a',
+        weight: 1.5,
+        opacity: 0.75,
+        fillColor: '#e35b4a',
+        fillOpacity: 0.18,
+        dashArray: '4 3',
+        interactive: false,
+        className: 'mortar-damage-circle',
+      }).addTo(mortarLayerGroup);
+
+      const marker = L.marker([t.ueY, t.ueX], {
+        icon: targetIcon(sol.inRange),
+        draggable: true,
+        autoPan: true,
+      }).addTo(mortarLayerGroup);
+      marker.bindTooltip(targetTooltipHtml(sol), {
+        permanent: true,
+        direction: 'top',
+        offset: [0, -8],
+        className: 'target-pin-tooltip',
+      });
+
+      // Capture a stable index so drag updates the right target — we can't
+      // use `i` directly because targetPositions can be re-ordered on clear.
+      const idx = i;
+      marker.on('drag', (e) => {
+        const ll = e.target.getLatLng();
+        targetPositions[idx] = { ueX: ll.lng, ueY: ll.lat };
+        refreshMortarVisuals(hm, layer);
+      });
+
+      mortarRefs.targets.push({ marker, line, damageCircle });
+    }
+    updateMortarResultPanel(sols);
+  }
+
+  function updateMortarResultPanel(sols) {
+    const panel = document.getElementById('mortar-panel');
+    const el = document.getElementById('mortar-result');
+    if (!panel || !el) return;
+    if (!sols || sols.length === 0) {
+      panel.classList.add('hidden');
+      return;
+    }
+    panel.classList.remove('hidden');
+
+    const rows = sols.map((sol, i) => {
+      const num = i + 1;
+      const distStr = `${sol.dist.toFixed(0)}m`;
+      const bearStr = `${sol.bearing.toFixed(0)}&deg;`;
+      let elevStr;
+      if (!sol.inRange) {
+        elevStr = '<span class="mortar-oor">OOR</span>';
+      } else if (sol.high) {
+        elevStr = `<strong>${sol.high.mil.toFixed(0)}</strong> mil`;
+      } else if (sol.low) {
+        elevStr = `<strong>${sol.low.mil.toFixed(0)}</strong> mil`;
+      } else {
+        elevStr = '<span class="mortar-oor">OOR</span>';
+      }
+      return `<div class="mortar-target-row">
+        <span class="mortar-target-num">T${num}</span>
+        <span class="mortar-target-dist">${distStr}</span>
+        <span class="mortar-target-bear">${bearStr}</span>
+        <span class="mortar-target-elev">${elevStr}</span>
+      </div>`;
+    }).join('');
+
+    el.innerHTML = rows;
+  }
+
+  function currentLayer() {
+    const group = mapGroups[currentMapId];
+    return group ? group[currentLayerIndex] : null;
   }
 
   function placeHab(ueX, ueY, team) {
@@ -2152,18 +3011,33 @@
       iconAnchor: [size / 2, size / 2]
     });
 
-    const marker = L.marker([ueY, ueX], { icon }).addTo(habLayerGroup);
+    const marker = L.marker([ueY, ueX], {
+      icon,
+      draggable: true,
+      autoPan: true,
+    }).addTo(habLayerGroup);
 
     const hab = { ueX, ueY, team, marker, buildCircle, exclusionCircle };
     placedHabs.push(hab);
 
-    // Click marker to remove
+    // Click marker to remove. Leaflet fires `click` on drag-release only when
+    // the pointer actually went down and up in place, so drag ≠ click.
     marker.on('click', (e) => {
       L.DomEvent.stopPropagation(e);
       removeHab(hab);
     });
 
-    marker.bindTooltip('Click to remove', {
+    // Drag: move the two radius circles in lockstep and refresh conflicts.
+    marker.on('drag', (e) => {
+      const ll = e.target.getLatLng();
+      hab.ueX = ll.lng;
+      hab.ueY = ll.lat;
+      hab.buildCircle.setLatLng(ll);
+      hab.exclusionCircle.setLatLng(ll);
+      updateHabConflicts();
+    });
+
+    marker.bindTooltip('Drag to move · click to remove', {
       direction: 'top',
       offset: [0, -size / 2],
       className: 'obj-label'
@@ -2241,18 +3115,36 @@
       }
     });
 
-    // HAB tool
-    document.getElementById('hab-tool-btn').addEventListener('click', toggleHabTool);
-    document.querySelectorAll('.hab-team-btn').forEach(btn => {
-      btn.addEventListener('click', () => setHabTeam(btn.dataset.team));
+    // Mortar tool — no tool button. Double-click places, panel close button clears.
+    const mortarCloseBtn = document.getElementById('mortar-close-btn');
+    if (mortarCloseBtn) mortarCloseBtn.addEventListener('click', clearMortar);
+
+    // Right-click context menu: delegate item clicks, close on outside click.
+    const ctxMenu = document.getElementById('map-context-menu');
+    if (ctxMenu) {
+      ctxMenu.addEventListener('click', (e) => {
+        const btn = e.target.closest('.mcm-item');
+        if (!btn || btn.disabled) return;
+        handleMapContextAction(btn.dataset.action);
+      });
+      // Suppress the browser's native menu on our custom menu.
+      ctxMenu.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+    document.addEventListener('mousedown', (e) => {
+      const menu = document.getElementById('map-context-menu');
+      if (!menu || menu.classList.contains('hidden')) return;
+      if (menu.contains(e.target)) return;
+      closeMapContextMenu();
     });
-    document.getElementById('hab-clear-btn').addEventListener('click', clearAllHabs);
 
     // Keyboard
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        if (habToolActive) {
-          toggleHabTool();
+        const menu = document.getElementById('map-context-menu');
+        if (menu && !menu.classList.contains('hidden')) {
+          closeMapContextMenu();
+        } else if (mortarPosition || targetPositions.length > 0) {
+          clearMortar();
         } else if (currentMapId) {
           goBack();
         }

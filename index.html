@@ -8,7 +8,7 @@
   <link rel="icon" href="squadmaps-32.png" type="image/png" sizes="32x32">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app.css?v=36">
+  <link rel="stylesheet" href="app.css?v=44">
 </head>
 <body>
   <!-- Header -->
@@ -72,17 +72,37 @@
             <div class="match-info" id="match-info"></div>
             <div class="team-panel team2-panel" id="team2-panel"></div>
           </div>
-          <!-- Map tools -->
-          <div id="map-tools" class="map-tools">
-            <button id="hab-tool-btn" class="map-tool-btn" title="HAB placement tool — click map to place (Esc to cancel)">
-              <span class="tool-icon">&#9978;</span>
-              <span class="tool-label">HAB</span>
+          <!-- Right-click context menu (GIS-style tool picker) -->
+          <div id="map-context-menu" class="map-context-menu hidden" role="menu">
+            <button class="mcm-item" data-action="hab" role="menuitem">
+              <span class="mcm-icon mcm-icon-hab">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                  <path d="M5 16L3 7l5.5 4L12 5l3.5 6L21 7l-2 9H5zm0 2h14v2H5v-2z"/>
+                </svg>
+              </span>Place HAB
             </button>
-            <div id="hab-controls" class="hab-controls hidden">
-              <button class="hab-team-btn hab-team1 active" data-team="team1" title="Place Team 1 HAB">T1</button>
-              <button class="hab-team-btn hab-team2" data-team="team2" title="Place Team 2 HAB">T2</button>
-              <button id="hab-clear-btn" class="hab-clear-btn" title="Remove all HABs">&times;</button>
+            <button class="mcm-item" data-action="mortar-place" role="menuitem">
+              <span class="mcm-icon">&#9876;</span>Place Mortar
+            </button>
+            <button class="mcm-item" data-action="mortar-target" role="menuitem">
+              <span class="mcm-icon">&#8853;</span>Add Target
+            </button>
+            <div class="mcm-divider"></div>
+            <button class="mcm-item mcm-item-danger" data-action="clear-habs" role="menuitem">
+              <span class="mcm-icon">&times;</span>Clear HABs
+            </button>
+            <button class="mcm-item mcm-item-danger" data-action="clear-mortar" role="menuitem">
+              <span class="mcm-icon">&times;</span>Clear Mortar
+            </button>
+          </div>
+
+          <!-- Mortar firing solution — double-click the map to place -->
+          <div id="mortar-panel" class="mortar-panel hidden">
+            <div class="mortar-panel-header">
+              <span>Standard Mortar</span>
+              <button id="mortar-close-btn" class="mortar-close-btn" title="Clear (Esc)">&times;</button>
             </div>
+            <div id="mortar-result" class="mortar-result"></div>
           </div>
         </div>
       </div>
@@ -93,6 +113,6 @@
   <script src="data/v10_data.js?v=2"></script>
   <script src="data/translations.js"></script>
   <script src="data/water_hazards.js"></script>
-  <script src="app.js?v=36"></script>
+  <script src="app.js?v=43"></script>
 </body>
 </html>

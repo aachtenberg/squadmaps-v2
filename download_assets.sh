@@ -10,7 +10,7 @@ echo "=== Downloading SquadMaps assets ==="
 # ---------------------------------------------------------------------------
 # 1. HTML, CSS, JS, favicons
 # ---------------------------------------------------------------------------
-echo "[1/8] Static files..."
+echo "[1/9] Static files..."
 $CURL "$BASE/" -o "$OUT/index_original.html"
 $CURL "$BASE/static/css/main.c3572fbd.css" -o "$OUT/static/css/main.c3572fbd.css"
 # Bundle already saved
@@ -23,7 +23,7 @@ done
 # ---------------------------------------------------------------------------
 # 2. Faction flags
 # ---------------------------------------------------------------------------
-echo "[2/8] Faction flags..."
+echo "[2/9] Faction flags..."
 for fid in ADF AFU BAF CAF CRF GFI IMF MEI PLA PLAAGF PLANMC RGF TLF USA USMC VDV WPMC; do
   $CURL "$BASE/assets/flags/flag_${fid}.png" -o "$OUT/assets/flags/flag_${fid}.png" || echo "  SKIP flag_${fid}"
 done
@@ -31,7 +31,7 @@ done
 # ---------------------------------------------------------------------------
 # 3. Vehicle icons
 # ---------------------------------------------------------------------------
-echo "[3/8] Vehicle icons..."
+echo "[3/9] Vehicle icons..."
 for vid in 0 4 6 8 10; do
   $CURL "$BASE/assets/vehicles/${vid}.png" -o "$OUT/assets/vehicles/${vid}.png" || echo "  SKIP vehicle ${vid}"
 done
@@ -39,7 +39,7 @@ done
 # ---------------------------------------------------------------------------
 # 4. Thumbnails
 # ---------------------------------------------------------------------------
-echo "[4/8] Thumbnails..."
+echo "[4/9] Thumbnails..."
 THUMBNAILS=(
   Anvil_Minimap Black_Coast_Minimap Chora_Minimap Chora_Minimap_Skirmish_v1
   Fallujah_Minimap_Skirmish Fools_Road_Minimap GooseBay_Minimap GooseBay_Minimap_Seed_v1
@@ -61,7 +61,7 @@ done
 # ---------------------------------------------------------------------------
 # 5. Single map images (full-size webp for Leaflet ImageOverlay fallback)
 # ---------------------------------------------------------------------------
-echo "[5/8] Single map images..."
+echo "[5/9] Single map images..."
 for t in "${THUMBNAILS[@]}"; do
   $CURL "$BASE/assets/maps/single/${t}.webp" -o "$OUT/assets/maps/single/${t}.webp" || echo "  SKIP single $t"
 done
@@ -69,7 +69,7 @@ done
 # ---------------------------------------------------------------------------
 # 6. Map tiles (256x256 PNGs, zoom levels 1-4)
 # ---------------------------------------------------------------------------
-echo "[6/8] Map tiles..."
+echo "[6/9] Map tiles..."
 for t in "${THUMBNAILS[@]}"; do
   for z in 1 2 3 4; do
     max_xy=$(( (1 << z) - 1 ))
@@ -88,7 +88,7 @@ done
 # ---------------------------------------------------------------------------
 # 7. Unit badges
 # ---------------------------------------------------------------------------
-echo "[7/8] Unit badges..."
+echo "[7/9] Unit badges..."
 UNITS=(
   T_ADF_1RAR_Mechanized T_ADF_3RAR_AirAssault T_ADF_3rd_Brigade_CombinedArms
   T_BAF_1_YORKS_Mechanized T_BAF_2_BPR_AirAssault T_BAF_3DIV_CombinedArms
@@ -125,9 +125,9 @@ for u in "${UNITS[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
-# 8. Heightmaps
+# 8. Heightmap previews (WebP images shown in the UI)
 # ---------------------------------------------------------------------------
-echo "[8/8] Heightmaps..."
+echo "[8/9] Heightmap previews..."
 HEIGHTMAPS=(
   "al basrah" "anvil" "belaya" "black coast" "chora" "fallujah" "fool's road"
   "goose bay" "gorodok" "harju" "kamdesh" "kohat" "kokan" "lashkar" "logar"
@@ -136,6 +136,32 @@ HEIGHTMAPS=(
 for h in "${HEIGHTMAPS[@]}"; do
   encoded=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$h'))")
   $CURL "$BASE/assets/heightmaps/${encoded}.webp" -o "$OUT/assets/heightmaps/${h}.webp" || echo "  SKIP heightmap $h"
+done
+
+# ---------------------------------------------------------------------------
+# 9. SquadCalc heightmap JSONs (real elevation data for the mortar tool).
+#    500×500 float arrays in meters. ~70 MB total. Gitignored — not committed.
+#    Source: https://squadcalc.app/api/img/maps/<slug>/heightmap.json
+# ---------------------------------------------------------------------------
+echo "[9/9] Mortar tool elevation data..."
+mkdir -p "$OUT/data/heightmaps"
+SQUADCALC="https://squadcalc.app/api/img/maps"
+# Pairs of "<squadcalc-slug> <local-filename>" — slug is their URL path, local
+# name matches the HEIGHTMAP_FILES dict in app.js.
+ELEVATION=(
+  "albasrah albasrah" "anvil anvil" "belaya belaya" "blackcoast blackcoast"
+  "chora chora" "fallujah fallujah" "foolsroad foolsroad" "goosebay goosebay"
+  "gorodok gorodok" "harju harju" "jensen jensen" "kamdesh kamdesh"
+  "kohat kohat" "kokan kokan" "lashkar lashkar" "logar logar"
+  "manicouagan manicouagan" "mestia mestia" "mutaha mutaha" "narva narva"
+  "pacific pacific" "sanxian sanxian" "skorpo skorpo" "sumari sumari"
+  "tallil tallil" "yehorivka yehorivka"
+)
+for pair in "${ELEVATION[@]}"; do
+  slug=$(echo "$pair" | cut -d' ' -f1)
+  local=$(echo "$pair" | cut -d' ' -f2)
+  $CURL "$SQUADCALC/${slug}/heightmap.json" -o "$OUT/data/heightmaps/${local}.json" \
+    || echo "  SKIP heightmap $slug"
 done
 
 # ---------------------------------------------------------------------------

@@ -134,9 +134,17 @@ html, body {
 }
 
 /* ---- Map Grid (Home) ---- */
+/* Map grid — fixed-width cards in a centered grid that reflow columns as
+   the window shrinks. No aspect-ratio on the card itself; image has its own
+   aspect-ratio, body flows naturally beneath it. `grid-auto-rows: max-content`
+   and `align-items: start` stop grid cells from stretching vertically, which
+   was clipping the title bar on narrower viewports. */
 .map-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, 220px);
+  grid-auto-rows: max-content;
+  justify-content: center;
+  align-items: start;
   gap: 14px;
   padding: 20px;
   overflow-y: auto;
@@ -151,6 +159,7 @@ html, body {
   cursor: pointer;
   transition: transform 0.15s, background 0.15s;
   border: 1px solid var(--border);
+  display: block;
 }
 
 .map-card:hover {
@@ -160,26 +169,38 @@ html, body {
 
 .map-card-img {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 3 / 2;
   object-fit: cover;
   display: block;
   background: var(--bg-secondary);
 }
 
 .map-card-body {
-  padding: 8px;
+  display: block;
+  padding: 8px 12px 10px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  min-height: 42px;
 }
 
 .map-card-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  margin-bottom: 2px;
+  line-height: 1.2;
+  margin-bottom: 3px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .map-card-meta {
   font-size: 10px;
+  line-height: 1.3;
   color: var(--text-secondary);
-  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .map-card-meta span {
@@ -431,7 +452,7 @@ html, body {
 
 .team-panel .team-header {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   column-gap: 8px;
   margin-bottom: 4px;
@@ -840,13 +861,20 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
   border-radius: 50%;
   border: 2px solid #fff;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 800;
   color: #fff;
   text-shadow: 0 1px 2px rgba(0,0,0,0.6);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.42);
+  transform-origin: center;
+}
+
+.obj-marker::before,
+.obj-marker::after {
+  pointer-events: none;
 }
 
 .obj-marker.blufor {
@@ -865,19 +893,40 @@ html, body {
   box-shadow: 0 0 18px 6px rgba(107, 142, 35, 0.9);
   border-color: #6b8e23;
   border-width: 3px;
-  font-size: 14px;
+  font-size: 16px;
   transform: scale(1.08);
 }
 
 .obj-marker.captured {
-  box-shadow: 0 0 10px 3px rgba(107, 142, 35, 0.7);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18), 0 0 10px 3px rgba(107, 142, 35, 0.7);
   border-color: #6b8e23;
+}
+
+.obj-marker.captured::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.88);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
 }
 
 .obj-marker.last-captured {
   cursor: pointer;
-  box-shadow: 0 0 10px 3px rgba(107, 142, 35, 0.7);
-  border-color: #6b8e23;
+  border-color: #dbe98b;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.24), 0 0 18px 7px rgba(107, 142, 35, 0.52), 0 4px 14px rgba(0,0,0,0.42);
+  animation: selected-pop 1.1s ease-in-out infinite;
+  z-index: 2;
+}
+
+.obj-marker.last-captured::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 2px solid rgba(219, 233, 139, 0.9);
+  box-shadow: 0 0 16px rgba(178, 206, 92, 0.35);
+  animation: selected-ring 1.35s ease-out infinite;
 }
 
 .obj-marker.next-capture {
@@ -894,6 +943,33 @@ html, body {
 @keyframes pulse-next {
   0%, 100% { box-shadow: 0 0 6px 2px rgba(210, 170, 80, 0.5); }
   50% { box-shadow: 0 0 14px 5px rgba(210, 170, 80, 0.9); }
+}
+
+@keyframes selected-pop {
+  0%, 100% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.12);
+  }
+  65% {
+    transform: scale(1.04);
+  }
+}
+
+@keyframes selected-ring {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.95;
+  }
+  70% {
+    transform: scale(1.24);
+    opacity: 0.12;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
 }
 
 @keyframes pulse-uncaptured {
@@ -940,6 +1016,16 @@ html, body {
 }
 
 .lane-btn.active {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-color: var(--accent);
+}
+
+.lane-static-label {
+  cursor: default;
+}
+
+.lane-static-label:hover {
   background: var(--accent);
   color: var(--bg-primary);
   border-color: var(--accent);
@@ -1070,6 +1156,47 @@ html, body {
   box-shadow: 0 0 0 1px rgba(80, 10, 5, 0.22), 0 2px 8px rgba(60, 0, 0, 0.25);
 }
 
+.leaflet-overlay-pane svg .lane-line {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.3));
+}
+
+.leaflet-overlay-pane svg .lane-line-captured {
+  filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.36));
+}
+
+.leaflet-overlay-pane svg path.lane-line-ants {
+  animation: lane-ant-march 1.2s linear infinite;
+  will-change: stroke-dashoffset;
+}
+
+.leaflet-overlay-pane svg .lane-line-next {
+  filter: drop-shadow(0 0 5px rgba(210, 170, 80, 0.3));
+}
+
+.leaflet-overlay-pane svg .lane-line-future {
+  filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.22));
+}
+
+@keyframes lane-ant-march {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+@keyframes lane-ant-march-fast {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
 .capture-label {
   min-width: 92px;
   padding: 4px 10px 4px 12px;
@@ -1144,9 +1271,36 @@ html, body {
   justify-content: center;
 }
 
+/* ---- Insurgency Cache Markers ---- */
+.cache-marker {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #d83a2a;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7)) drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));
+  pointer-events: none;
+}
+
+.cache-marker svg {
+  display: block;
+}
+
 /* ---- TC Hex Zones ---- */
 .tc-hex {
   transition: fill-opacity 0.15s;
+}
+
+.tc-hex-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #f5f5e8;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85), 0 0 3px rgba(0, 0, 0, 0.7);
+  line-height: 14px;
+  pointer-events: none;
+  user-select: none;
 }
 
 .hex-tooltip {
@@ -1284,112 +1438,80 @@ html, body {
 }
 
 /* ---- Map Tools / HAB Placement ---- */
-.map-tools {
+/* Right-click context menu (GIS-style tool picker) */
+.map-context-menu {
   position: absolute;
-  bottom: 12px;
-  right: 12px;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.map-tool-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
+  z-index: 1500;
+  min-width: 170px;
+  padding: 4px;
   border-radius: 6px;
+  background: rgba(20, 20, 16, 0.96);
   border: 1px solid var(--border);
-  background: rgba(26, 26, 22, 0.92);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(10px);
   font-family: var(--font);
-  cursor: pointer;
-  transition: all 0.15s;
-  backdrop-filter: blur(6px);
+  user-select: none;
 }
 
-.map-tool-btn:hover {
-  background: rgba(42, 42, 34, 0.95);
-  color: var(--text-primary);
-  border-color: var(--accent);
-}
-
-.map-tool-btn.active {
-  background: var(--accent);
-  color: var(--bg-primary);
-  border-color: var(--accent);
-}
-
-.tool-icon {
-  font-size: 14px;
-  line-height: 1;
-}
-
-.hab-controls {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px;
-  border-radius: 6px;
-  background: rgba(26, 26, 22, 0.92);
-  border: 1px solid var(--border);
-  backdrop-filter: blur(6px);
-}
-
-.hab-controls.hidden {
+.map-context-menu.hidden {
   display: none;
 }
 
-.hab-team-btn {
-  padding: 4px 8px;
-  border-radius: 4px;
-  border: 1px solid transparent;
+.mcm-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
   background: transparent;
-  color: var(--text-secondary);
-  font-size: 10px;
-  font-weight: 700;
+  color: var(--text-primary);
+  border: 0;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
   font-family: var(--font);
+  text-align: left;
   cursor: pointer;
-  transition: all 0.15s;
 }
 
-.hab-team-btn.hab-team1.active {
-  background: var(--blufor);
-  color: #fff;
-  border-color: var(--blufor);
-}
-
-.hab-team-btn.hab-team2.active {
-  background: var(--redfor);
-  color: #fff;
-  border-color: var(--redfor);
-}
-
-.hab-team-btn:hover:not(.active) {
+.mcm-item:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.mcm-item:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  opacity: 0.55;
+}
+
+.mcm-item-danger:hover:not(:disabled) {
+  background: rgba(200, 50, 50, 0.22);
+  color: #e55;
+}
+
+.mcm-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+
+.mcm-item:hover:not(:disabled) .mcm-icon {
   color: var(--text-primary);
 }
 
-.hab-clear-btn {
-  padding: 4px 7px;
-  border-radius: 4px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-  transition: all 0.15s;
+.mcm-icon-hab {
+  color: #ffd770;
 }
 
-.hab-clear-btn:hover {
-  background: rgba(200, 50, 50, 0.2);
-  color: #cc3333;
-  border-color: rgba(200, 50, 50, 0.3);
+.mcm-divider {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
 }
 
 /* HAB markers — gold crown */
@@ -1406,9 +1528,13 @@ html, body {
     0 0 14px rgba(255, 215, 112, 0.85),
     0 0 4px rgba(255, 215, 112, 1),
     0 2px 8px rgba(0, 0, 0, 0.85);
-  cursor: pointer;
+  cursor: grab;
   transition: transform 0.1s, box-shadow 0.15s;
   filter: drop-shadow(0 0 2px rgba(255, 215, 112, 0.6));
+}
+
+.hab-marker:active {
+  cursor: grabbing;
 }
 
 .hab-marker svg {
@@ -1458,13 +1584,210 @@ html, body {
   }
 }
 
-/* Crosshair cursor when HAB tool active */
-.hab-cursor {
-  cursor: crosshair !important;
+/* ---- Mortar / Indirect-fire tool ---- */
+/* Plain black dagger pin; the tip of the blade is the weapon position
+   (iconAnchor is at the bottom of the 16x32 svg). */
+.mortar-marker {
+  width: 26px;
+  height: 26px;
+  position: relative;
+  cursor: grab;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.9));
 }
 
-.hab-cursor .leaflet-interactive {
-  cursor: crosshair !important;
+.mortar-marker:active {
+  cursor: grabbing;
+}
+
+.mortar-marker .reticle-ring,
+.mortar-marker .reticle-tick {
+  fill: none;
+  stroke: #ffd770;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.mortar-marker .reticle-dot {
+  fill: #ffd770;
+  stroke: none;
+}
+
+/* Range circle can be right-click-toggled off without losing the mortar */
+.mortar-range-circle.hidden {
+  display: none;
+}
+
+/* Small centered red dot at the target. Distance/bearing/elev label lives
+   in a separate Leaflet tooltip (`.target-pin-tooltip`) so drag updates can
+   change the label text without calling setIcon mid-drag. */
+.target-pin {
+  width: 14px;
+  height: 14px;
+  position: relative;
+  cursor: grab;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7));
+}
+
+.target-pin:active {
+  cursor: grabbing;
+}
+
+.target-pin .target-dot {
+  fill: #d83a2a;
+  stroke: #ffece4;
+  stroke-width: 2;
+}
+
+.target-pin .target-pip {
+  fill: #ffece4;
+  stroke: none;
+}
+
+.target-pin.oor .target-dot {
+  fill: #808080;
+  stroke: rgba(200, 200, 200, 0.7);
+}
+
+/* Bold, large, high-contrast tooltip — readable without zooming in.
+   Transparent background so the text floats directly above the pin. */
+.target-pin-tooltip {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  color: #ffffff !important;
+  font-family: 'Oswald', 'Impact', 'Arial Black', var(--font) !important;
+  font-size: 18px !important;
+  font-weight: 900 !important;
+  line-height: 1.05 !important;
+  letter-spacing: 0.5px !important;
+  text-align: center !important;
+  text-shadow:
+    -1px -1px 0 #000,
+     1px -1px 0 #000,
+    -1px  1px 0 #000,
+     1px  1px 0 #000,
+     0 0 4px rgba(0, 0, 0, 0.95),
+     0 2px 6px rgba(0, 0, 0, 0.8) !important;
+  white-space: nowrap !important;
+  pointer-events: none !important;
+}
+
+.target-pin-tooltip::before {
+  display: none !important;
+}
+
+/* Damage/kill-radius ring around each target — dashed red with faint fill. */
+.mortar-damage-circle {
+  stroke-dasharray: 4 3;
+}
+
+/* Max-range circle stroke override (Leaflet draws svg paths) */
+.leaflet-overlay-pane svg path.leaflet-interactive + path,
+.mortar-range-circle {
+  stroke-dasharray: 4 5;
+}
+
+/* Floating result panel */
+.mortar-panel {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  min-width: 200px;
+  padding: 0;
+  background: rgba(19, 19, 16, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 800;
+  pointer-events: auto;
+  font-family: var(--font);
+}
+
+.mortar-panel.hidden {
+  display: none;
+}
+
+.mortar-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 5px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #6fc3df;
+}
+
+.mortar-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.mortar-close-btn:hover {
+  color: #e35b4a;
+}
+
+.mortar-result {
+  padding: 4px 6px;
+  font-size: 11px;
+  color: var(--text-primary);
+  line-height: 1.4;
+  min-width: 230px;
+}
+
+.mortar-target-row {
+  display: grid;
+  grid-template-columns: 28px 62px 48px 1fr;
+  gap: 6px;
+  align-items: baseline;
+  padding: 4px 6px;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  border-radius: 3px;
+}
+
+.mortar-target-row + .mortar-target-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mortar-target-num {
+  color: #6fc3df;
+  font-weight: 700;
+  font-size: 10px;
+}
+
+.mortar-target-dist {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.mortar-target-bear {
+  color: var(--text-secondary);
+}
+
+.mortar-target-elev {
+  color: #e08025;
+  text-align: right;
+}
+
+.mortar-oor {
+  color: #e35b4a;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.mortar-oor-tt {
+  color: #ffd0c8;
+  font-size: 9px;
 }
 
 /* ---- Responsive ---- */
@@ -1480,7 +1803,7 @@ html, body {
   }
 
   .map-grid {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fill, 160px);
     gap: 8px;
     padding: 10px;
   }

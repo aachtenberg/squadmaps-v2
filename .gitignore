@@ -2,6 +2,12 @@
 assets/maps/tiles/
 assets/maps/single/
 
+# SquadCalc heightmap JSONs — fetched by download_assets.sh (~70 MB)
+data/heightmaps/
+
+# Intermediate stitched + upscaled PNGs from scripts/upscale_tiles_to_z5.py
+scripts/upscale_cache/
+
 # Python
 __pycache__/
 *.py[cod]

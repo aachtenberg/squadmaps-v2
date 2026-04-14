@@ -187,12 +187,22 @@ public static class LayerExtractor
             .Where(e => ClassName(e).Contains("CaptureZoneCluster", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        // Walk every BP_CaptureZone_C and group by parent cluster via the
+        // Walk every capture-zone actor and group by parent cluster via the
         // actual UE attachment hierarchy (the capture zone's RootComponent
         // has an AttachParent pointing at the cluster's scene root, whose
         // Outer is the cluster actor).
+        // - BP_CaptureZone_C          : RAAS / AAS standard zones
+        // - BP_CaptureZoneInvasion_C  : Invasion-specific zones (each lane's
+        //                                clusters share the same template
+        //                                stub position; the real flag coords
+        //                                live on these zone actors).
+        var captureZoneClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "BP_CaptureZone_C",
+            "BP_CaptureZoneInvasion_C",
+        };
         var allCaptureZones = exports
-            .Where(e => ClassName(e).Equals("BP_CaptureZone_C", StringComparison.OrdinalIgnoreCase))
+            .Where(e => captureZoneClasses.Contains(ClassName(e)))
             .ToList();
         var captureZonesByCluster = new Dictionary<string, List<UObject>>();
         var unparented = new List<UObject>();
@@ -344,6 +354,9 @@ public static class LayerExtractor
 
     private static string ClassName(UObject obj) => obj.Class?.Name.Text ?? "";
 
+    public static FVector PublicGetLocation(UObject obj) => GetLocation(obj);
+    public static string PublicGetActorLabel(UObject obj) => GetActorLabel(obj);
+
     /// <summary>
     /// Get the actor's editor label, falling back to its package name when
     /// the label is missing OR empty (some auto-generated actors have an
@@ -372,25 +385,56 @@ public static class LayerExtractor
     }
 
     /// <summary>
-    /// Walk a SceneComponent's AttachParent chain and sum all RelativeLocations
-    /// to get the effective world location. Stops when AttachParent is null.
-    /// Cycle protection: max 16 hops.
+    /// Walk a SceneComponent's AttachParent chain and compose its RelativeLocation
+    /// + RelativeRotation up the hierarchy to compute the effective world
+    /// location. Required because Squad's AAS layouts ship as a single template
+    /// blueprint actor (BP_AASGraph_C) whose RootComponent has both a
+    /// translation AND a yaw rotation; child capture-zone actors live in the
+    /// blueprint's local frame, so a translation-only walk gave wildly wrong
+    /// world positions whenever the level designer rotated the template
+    /// (Manicouagan/GooseBay/PacificProvingGrounds AAS were all yawed -65 to
+    /// -90 degrees, which placed the unrotated extracted positions hundreds
+    /// of meters outside the playable area).
+    ///
+    /// We only handle yaw (Z-axis) rotation since Squad maps are flat. Pitch
+    /// and roll on layout actors are always zero in practice.
     /// </summary>
     private static FVector AccumulateWorldLocation(UObject sceneComponent)
     {
-        var total = new FVector(0, 0, 0);
+        // Build the leaf->root chain first.
+        var chain = new List<UObject>();
         var current = sceneComponent;
-        for (int hop = 0; hop < 16; hop++)
+        for (int hop = 0; hop < 16 && current != null; hop++)
         {
-            if (current == null) break;
-            var local = current.GetOrDefault<FVector>("RelativeLocation");
-            total = new FVector(total.X + local.X, total.Y + local.Y, total.Z + local.Z);
-
+            chain.Add(current);
             var parentRef = current.GetOrDefault<FPackageIndex?>("AttachParent");
             if (parentRef == null || parentRef.IsNull) break;
             current = parentRef.Load();
         }
-        return total;
+
+        // Walk root->leaf so each child's local offset is rotated by the
+        // accumulated yaw of all ancestors before being added.
+        double worldX = 0, worldY = 0, worldZ = 0;
+        double accumYawDeg = 0;
+        for (int i = chain.Count - 1; i >= 0; i--)
+        {
+            var comp = chain[i];
+            var localLoc = comp.GetOrDefault<FVector>("RelativeLocation");
+            var localRot = comp.GetOrDefault<FRotator>("RelativeRotation");
+
+            var rad = accumYawDeg * Math.PI / 180.0;
+            var cosY = Math.Cos(rad);
+            var sinY = Math.Sin(rad);
+            var rotatedX = localLoc.X * cosY - localLoc.Y * sinY;
+            var rotatedY = localLoc.X * sinY + localLoc.Y * cosY;
+
+            worldX += rotatedX;
+            worldY += rotatedY;
+            worldZ += localLoc.Z;
+            accumYawDeg += localRot.Yaw;
+        }
+
+        return new FVector((float)worldX, (float)worldY, (float)worldZ);
     }
 
     private static FRotator GetRotation(UObject obj)
@@ -689,6 +733,7 @@ public static class Program
     {
         // Parse args
         bool extractAll = false;
+        bool dumpClasses = false;
         string? specificLayer = null;
         string? filter = null;
         string? squadContentRoot = null;
@@ -698,6 +743,7 @@ public static class Program
         {
             var arg = args[i];
             if (arg == "--all") extractAll = true;
+            else if (arg == "--dump-classes") dumpClasses = true;
             else if (arg == "--layer" && i + 1 < args.Length) specificLayer = args[++i];
             else if (arg == "--filter" && i + 1 < args.Length) filter = args[++i];
             else if (arg == "--out" && i + 1 < args.Length) outputDir = args[++i];
@@ -803,6 +849,107 @@ public static class Program
             try
             {
                 var package = provider.LoadPackage(packagePath);
+
+                if (dumpClasses)
+                {
+                    Console.WriteLine();
+                    var allExports = package.GetExports().ToList();
+                    var byClass = allExports
+                        .GroupBy(e => e.Class?.Name.Text ?? "<no-class>")
+                        .OrderByDescending(g => g.Count())
+                        .ToList();
+                    Console.WriteLine($"  {allExports.Count} exports, {byClass.Count} unique classes:");
+                    foreach (var grp in byClass)
+                    {
+                        Console.WriteLine($"    {grp.Count(),5}  {grp.Key}");
+                    }
+                    Console.WriteLine();
+                    Console.WriteLine($"  Capture/Zone-related exports:");
+                    foreach (var e in allExports.Where(e => {
+                        var n = e.Class?.Name.Text ?? "";
+                        return n.Contains("Capture", StringComparison.OrdinalIgnoreCase)
+                            || n.Contains("Zone", StringComparison.OrdinalIgnoreCase);
+                    }))
+                    {
+                        var label = e.GetOrDefault<string?>("ActorLabel") ?? e.Name;
+                        Console.WriteLine($"    [{e.Class?.Name.Text}] {label}  (export.Name={e.Name})");
+                    }
+                    Console.WriteLine();
+                    Console.WriteLine($"  Map/Marker/Boundary exports (with locations):");
+                    foreach (var e in allExports.Where(e => {
+                        var n = e.Class?.Name.Text ?? "";
+                        return n.Contains("Marker", StringComparison.OrdinalIgnoreCase)
+                            || n.Contains("Boundary", StringComparison.OrdinalIgnoreCase)
+                            || n.Contains("Bound", StringComparison.OrdinalIgnoreCase)
+                            || n.Equals("SQWorldSettings", StringComparison.OrdinalIgnoreCase);
+                    }))
+                    {
+                        var label = e.GetOrDefault<string?>("ActorLabel") ?? e.Name;
+                        var loc = LayerExtractor.PublicGetLocation(e);
+                        Console.WriteLine($"    [{e.Class?.Name.Text}] {label}  @ ({loc.X:F0}, {loc.Y:F0}, {loc.Z:F0})  (export.Name={e.Name})");
+                    }
+                    Console.WriteLine();
+                    Console.WriteLine($"  LevelStreaming entries (with transform):");
+                    foreach (var e in allExports.Where(e => (e.Class?.Name.Text ?? "").Contains("LevelStreaming", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var pkg = e.GetOrDefault<FSoftObjectPath?>("WorldAsset");
+                        var pkgName = pkg?.AssetPathName.Text ?? "<no-pkg>";
+                        var lt = e.GetOrDefault<FTransform>("LevelTransform");
+                        Console.WriteLine($"    [{e.Class?.Name.Text}] {e.Name} -> {pkgName}");
+                        Console.WriteLine($"      LevelTransform.Translation: ({lt.Translation.X:F0}, {lt.Translation.Y:F0}, {lt.Translation.Z:F0})");
+                        Console.WriteLine($"      LevelTransform.Rotation:    ({lt.Rotation.X:F3}, {lt.Rotation.Y:F3}, {lt.Rotation.Z:F3}, {lt.Rotation.W:F3})");
+                    }
+
+                    Console.WriteLine();
+                    Console.WriteLine($"  Detailed BP_CaptureZoneMain_C trace (RootComponent walk):");
+                    foreach (var actor in allExports.Where(e => (e.Class?.Name.Text ?? "").Equals("BP_CaptureZoneMain_C", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        Console.WriteLine($"    --- actor: {LayerExtractor.PublicGetActorLabel(actor)} (export.Name={actor.Name}) ---");
+                        var rootRef = actor.GetOrDefault<FPackageIndex?>("RootComponent");
+                        if (rootRef == null || rootRef.IsNull) { Console.WriteLine($"      <no RootComponent>"); continue; }
+                        var current = rootRef.Load();
+                        for (int hop = 0; hop < 16 && current != null; hop++)
+                        {
+                            var local = current.GetOrDefault<FVector>("RelativeLocation");
+                            var rot = current.GetOrDefault<FRotator>("RelativeRotation");
+                            var scale = current.GetOrDefault<FVector>("RelativeScale3D");
+                            var name = current.Name;
+                            var clsName = current.Class?.Name.Text ?? "";
+                            var outerName = current.Outer?.Name ?? "<no-outer>";
+                            Console.WriteLine($"      hop {hop}: [{clsName}] {name} (outer={outerName})");
+                            Console.WriteLine($"        Loc=({local.X:F0}, {local.Y:F0}, {local.Z:F0})  Rot=(p{rot.Pitch:F1}, y{rot.Yaw:F1}, r{rot.Roll:F1})  Scale=({scale.X:F2}, {scale.Y:F2}, {scale.Z:F2})");
+                            var parentRef = current.GetOrDefault<FPackageIndex?>("AttachParent");
+                            if (parentRef == null || parentRef.IsNull) break;
+                            current = parentRef.Load();
+                        }
+                    }
+
+                    Console.WriteLine();
+                    Console.WriteLine($"  Detailed BP_CaptureZone_C trace (first 2):");
+                    foreach (var actor in allExports.Where(e => (e.Class?.Name.Text ?? "").Equals("BP_CaptureZone_C", StringComparison.OrdinalIgnoreCase)).Take(2))
+                    {
+                        Console.WriteLine($"    --- actor: {LayerExtractor.PublicGetActorLabel(actor)} (export.Name={actor.Name}) ---");
+                        var rootRef = actor.GetOrDefault<FPackageIndex?>("RootComponent");
+                        if (rootRef == null || rootRef.IsNull) { Console.WriteLine($"      <no RootComponent>"); continue; }
+                        var current = rootRef.Load();
+                        for (int hop = 0; hop < 16 && current != null; hop++)
+                        {
+                            var local = current.GetOrDefault<FVector>("RelativeLocation");
+                            var rot = current.GetOrDefault<FRotator>("RelativeRotation");
+                            var name = current.Name;
+                            var clsName = current.Class?.Name.Text ?? "";
+                            var outerName = current.Outer?.Name ?? "<no-outer>";
+                            Console.WriteLine($"      hop {hop}: [{clsName}] {name} (outer={outerName}) Loc=({local.X:F0}, {local.Y:F0}, {local.Z:F0}) Rot=(p{rot.Pitch:F1}, y{rot.Yaw:F1}, r{rot.Roll:F1})");
+                            var parentRef = current.GetOrDefault<FPackageIndex?>("AttachParent");
+                            if (parentRef == null || parentRef.IsNull) break;
+                            current = parentRef.Load();
+                        }
+                    }
+
+                    successCount++;
+                    continue;
+                }
+
                 var data = LayerExtractor.Extract(package, layerName, packagePath);
                 var jsonText = JsonConvert.SerializeObject(data, Formatting.Indented);
                 var outPath = Path.Combine(outputDir, layerName + ".json");

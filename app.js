@@ -12,6 +12,8 @@
   let leafletMap = null;
   let tileLayer = null;
   let markerGroup = null;
+  let mapResizeObserver = null;
+  let userInteractedWithMap = false;
   let currentMapId = null;
   let currentLayerIndex = 0;
   let selectedFactionIds = { team1: null, team2: null };
@@ -19,10 +21,14 @@
   let captureSequence = [];    // array of normalized tokens captured so far, in order
   let activeTeam = null;       // 'team1' or 'team2' – which team's perspective
   let capturedSubPoints = {};  // token -> {x, y, name} – which sub-point was picked for each captured obj
+  let stagingFocus = null;     // { tokens, x, y, name } – pre-cap intent picked on the map
   let activeDestructionPhase = null; // null = show all phases, 0/1/2 = specific phase
   let animatedLaneLines = [];
   let laneAnimationFrameId = null;
   let lastLaneAnimationTs = 0;
+  let strategyDrawerOpen = false;
+  let matchInfoCollapsed = false;
+  let leftSidebarOpen = false;
 
   // HAB placement (triggered via right-click context menu — no dedicated tool state).
   let placedHabs = [];              // [{ueX, ueY, team, marker, buildCircle, exclusionCircle}]
@@ -30,12 +36,11 @@
   const HAB_BUILD_RADIUS = 15000;     // 150m in UE units (construction radius)
   const HAB_EXCLUSION_RADIUS = 40000; // 400m in UE units (enemy/friendly FOB exclusion)
 
-  // Indirect-fire tool (standard mortar for POC).
-  // Always-on: double-click the map to place. First dblclick = mortar (shows
-  // range circle as a dagger pin where the tip is the weapon position);
-  // each subsequent dblclick adds an independent target. All markers are
-  // draggable. Dragging the mortar keeps every target where it is — the
-  // firing solutions just recompute from the new mortar position.
+  // Indirect-fire tool.
+  // Always-on: double-click the map to place. First dblclick = weapon (shows
+  // range circle); each subsequent dblclick adds an independent target. All
+  // markers are draggable. Dragging the weapon keeps every target where it
+  // is — the firing solutions just recompute from the new position.
   let mortarPosition = null;         // {ueX, ueY} — world UE units
   let targetPositions = [];          // array of {ueX, ueY}, added in order
   let mortarLayerGroup = null;
@@ -49,6 +54,8 @@
   let ctxMenuLatLng = null;
   let ctxMenuJustClosed = false;
   const heightmapCache = {};
+  let activeWeaponId = 'mortar';
+  let activeShellIdx = 0;
   // Our mapId -> squadcalc heightmap file mapping.
   // Same json shape everywhere: 500x500 float array of meters above sea level.
   const HEIGHTMAP_FILES = {
@@ -62,25 +69,314 @@
     Skorpo: 'skorpo', Sumari: 'sumari', Tallil: 'tallil',
     Yehorivka: 'yehorivka',
   };
-  // Standard Squad mortar. Values match SquadCalc's weapons.js (SDK-sourced):
-  // v=110 m/s, g=9.81 * 1.0, high-angle only between 45° and 88.875°, tube
-  // sits ~1m above the ground so the mortar height gets +1. The shell has
-  // an outer kill radius of 40m (explosionRadius[1] in SquadCalc's data).
-  const MORTAR = {
-    name: 'Standard Mortar',
-    velocity: 110,
-    gravity: 9.81,
-    heightOffset: 1,
-    minElevationDeg: 45,
-    maxElevationDeg: 88.875,
-    damageRadiusM: 40,
+  const GRAVITY = 9.78;
+  const WEAPON_IDS = [
+    'mortar',
+    'technical-mortar',
+    'hellcannon',
+    'ub-32',
+    'technical-ub-32',
+    'bm-21-grad',
+    'mk19',
+    'btr4-ags',
+    'm1064m121',
+    'mo120rtf1',
+    'm109',
+    'm777',
+    't62-dump-truck',
+    'himars',
+    'tos-1a',
+    'ural-hellcannon',
+    'mtlb-fab500',
+  ];
+  const WEAPONS = {
+    mortar: {
+      displayName: 'Standard Mortar',
+      category: 'base',
+      source: 'Vanilla Squad',
+      gravityScale: 1,
+      heightOffset: 1,
+      angleOffset: 0,
+      minElevation: [45, 88.875],
+      unit: 'mil',
+      angleType: 'high',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 100,
+      shells: [{ name: 'default', velocity: 110, moa: 50, minDistance: 51, explosionRadius: [0, 40] }],
+    },
+    'technical-mortar': {
+      displayName: 'Technical Mortar',
+      category: 'base',
+      source: 'Vanilla Squad',
+      gravityScale: 1,
+      heightOffset: 2.5,
+      angleOffset: 5,
+      minElevation: [-45, 135],
+      unit: 'deg',
+      angleType: 'high',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 100,
+      shells: [{ name: 'default', velocity: 110, moa: 50, minDistance: 51, explosionRadius: [0, 40] }],
+    },
+    hellcannon: {
+      displayName: 'HellCannon',
+      category: 'base',
+      source: 'Vanilla Squad',
+      gravityScale: 1,
+      heightOffset: 1.5,
+      angleOffset: 0,
+      minElevation: [10, 90],
+      unit: 'deg',
+      angleType: 'high',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 100,
+      shells: [{ name: 'default', velocity: 95, moa: 100, minDistance: 0, explosionRadius: [1, 50] }],
+    },
+    'ub-32': {
+      displayName: 'UB-32',
+      category: 'base',
+      source: 'Vanilla Squad',
+      gravityScale: 2,
+      heightOffset: 1,
+      angleOffset: 0,
+      minElevation: [-25, 35],
+      unit: 'deg',
+      angleType: 'low',
+      deceleration: 50,
+      decelerationTime: 2,
+      projectileLifespan: 20,
+      shells: [{ name: 'default', velocity: 300, moa: 300, minDistance: 0, explosionRadius: [5, 18] }],
+    },
+    'technical-ub-32': {
+      displayName: 'Tech.UB-32',
+      category: 'base',
+      source: 'Vanilla Squad',
+      gravityScale: 2,
+      heightOffset: 2.5,
+      angleOffset: 0,
+      minElevation: [-45, 135],
+      unit: 'deg',
+      angleType: 'low',
+      deceleration: 50,
+      decelerationTime: 2,
+      projectileLifespan: 20,
+      shells: [{ name: 'default', velocity: 300, moa: 300, minDistance: 0, explosionRadius: [5, 18] }],
+    },
+    'bm-21-grad': {
+      displayName: 'BM-21 Grad',
+      category: 'base',
+      source: 'Vanilla Squad',
+      gravityScale: 2,
+      heightOffset: 3,
+      angleOffset: 0,
+      minElevation: [-45, 135],
+      unit: 'deg',
+      angleType: 'low',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 100,
+      shells: [{ name: 'default', velocity: 200, moa: 200, minDistance: 0, explosionRadius: [1, 35] }],
+    },
+    mk19: {
+      displayName: 'Mk19',
+      category: 'base',
+      source: 'Vanilla Squad',
+      gravityScale: 1,
+      heightOffset: 4,
+      angleOffset: 0.984,
+      minElevation: [-45, 85.3],
+      unit: 'deg',
+      angleType: 'low',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 20,
+      shells: [{ name: 'default', velocity: 230, moa: 50, minDistance: 10, explosionRadius: [1, 15] }],
+    },
+    'btr4-ags': {
+      displayName: 'BTR4-AGS',
+      category: 'base',
+      source: 'Vanilla Squad',
+      gravityScale: 1,
+      heightOffset: 3.4,
+      angleOffset: 0.73459689,
+      minElevation: [-45, 135],
+      unit: 'degMin',
+      angleType: 'low',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 20,
+      shells: [{ name: 'default', velocity: 190, moa: 15, minDistance: 0, explosionRadius: [1, 15] }],
+    },
+    m1064m121: {
+      displayName: 'M1064M121',
+      category: 'base',
+      source: 'Vanilla Squad',
+      gravityScale: 1,
+      heightOffset: 3,
+      angleOffset: 0,
+      minElevation: [-45, 85.3],
+      unit: 'deg',
+      angleType: 'high',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 100,
+      shells: [
+        { name: 'impact', velocity: 142, moa: 40, minDistance: 340, explosionRadius: [0, 40] },
+        { name: 'nearSurface', velocity: 142, moa: 50, minDistance: 340, explosionRadius: [10, 60] },
+      ],
+    },
+    mo120rtf1: {
+      displayName: 'MO120RTF1',
+      category: 'modded',
+      source: 'SuperMod',
+      gravityScale: 1,
+      heightOffset: 3,
+      angleOffset: 0,
+      minElevation: [45, 85.3],
+      unit: 'mil',
+      angleType: 'high',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 100,
+      shells: [
+        { name: 'MO-SHORT', velocity: 110, moa: 50, minDistance: 0, explosionRadius: [2, 60] },
+        { name: 'MO-MEDIUM', velocity: 143.5, moa: 50, minDistance: 0, explosionRadius: [2, 60] },
+        { name: 'MO-LONG', velocity: 171.5, moa: 50, minDistance: 0, explosionRadius: [2, 60] },
+      ],
+    },
+    m109: {
+      displayName: 'M109',
+      category: 'modded',
+      source: 'Steel Division',
+      gravityScale: 2,
+      heightOffset: 3,
+      angleOffset: 0,
+      minElevation: [-45, 135],
+      unit: 'deg',
+      angleType: 'low',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 100,
+      shells: [{ name: 'default', velocity: 225, moa: 1.5, minDistance: 0, explosionRadius: [40, 75] }],
+    },
+    m777: {
+      displayName: 'M777',
+      category: 'modded',
+      source: 'Steel Division',
+      gravityScale: 2,
+      heightOffset: 4,
+      angleOffset: 0,
+      minElevation: [15, 80],
+      unit: 'deg',
+      angleType: 'low',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 100,
+      shells: [{ name: 'default', velocity: 200, moa: 1.5, minDistance: 700, explosionRadius: [40, 75] }],
+    },
+    't62-dump-truck': {
+      displayName: 'T62 Dump Truck',
+      category: 'modded',
+      source: 'Steel Division',
+      gravityScale: 2,
+      heightOffset: 3,
+      angleOffset: 0,
+      minElevation: [-45, 135],
+      unit: 'deg',
+      angleType: 'low',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 100,
+      shells: [{ name: 'default', velocity: 210, moa: 100, minDistance: 0, explosionRadius: [20, 40] }],
+    },
+    himars: {
+      displayName: 'HIMARS',
+      category: 'modded',
+      source: 'Steel Division',
+      gravityScale: 2,
+      heightOffset: 3,
+      angleOffset: 0,
+      minElevation: [-3, 84.7],
+      unit: 'deg',
+      angleType: 'low',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 100,
+      shells: [{ name: 'default', velocity: 250, moa: 15, minDistance: 0, explosionRadius: [1.5, 50] }],
+    },
+    'tos-1a': {
+      displayName: 'TOS-1A',
+      category: 'modded',
+      source: 'Steel Division',
+      gravityScale: 1,
+      heightOffset: 3,
+      angleOffset: 0,
+      minElevation: [0, 80],
+      unit: 'deg',
+      angleType: 'low',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 100,
+      shells: [{ name: 'default', velocity: 100, moa: 200, minDistance: 0, explosionRadius: [15, 25] }],
+    },
+    'ural-hellcannon': {
+      displayName: 'Ural-HellCannon',
+      category: 'modded',
+      source: 'Steel Division',
+      gravityScale: 2,
+      heightOffset: 3,
+      angleOffset: 0,
+      minElevation: [10, 85],
+      unit: 'deg',
+      angleType: 'high',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 100,
+      shells: [{ name: 'default', velocity: 180, moa: 300, minDistance: 0, explosionRadius: [1, 75] }],
+    },
+    'mtlb-fab500': {
+      displayName: 'MTLB FAB500',
+      category: 'modded',
+      source: 'Squad AdminTools',
+      gravityScale: 1,
+      heightOffset: 3,
+      angleOffset: 0,
+      minElevation: [-45, 85.3],
+      unit: 'deg',
+      angleType: 'low',
+      deceleration: 0,
+      decelerationTime: 0,
+      projectileLifespan: 100,
+      shells: [{ name: 'default', velocity: 95, moa: 150, minDistance: 75, explosionRadius: [0.1, 50] }],
+    },
   };
+
+  (function initializeWeaponDerivedData() {
+    for (const weaponId of WEAPON_IDS) {
+      const weapon = WEAPONS[weaponId];
+      weapon._shellDerived = weapon.shells.map((shell) => {
+        const finalVelocity = shell.velocity - weapon.deceleration * weapon.decelerationTime;
+        const decelerationDistance = shell.velocity * weapon.decelerationTime -
+          0.5 * weapon.deceleration * weapon.decelerationTime * weapon.decelerationTime;
+        const maxDistanceM = decelerationDistance === 0
+          ? (shell.velocity * shell.velocity) / (GRAVITY * weapon.gravityScale)
+          : ((shell.velocity - finalVelocity) * weapon.decelerationTime) +
+            ((finalVelocity * finalVelocity) / (GRAVITY * weapon.gravityScale));
+        return { decelerationDistance, maxDistanceM };
+      });
+    }
+  }());
+
+  const STRATEGY_GUIDES = Array.isArray(window.STRATEGY_GUIDES) ? window.STRATEGY_GUIDES : [];
 
   // Faction display names & flag lookup
   const FACTION_NAMES = {
     ADF: 'Australian Defence Force', AFU: 'Armed Forces of Ukraine',
     BAF: 'British Armed Forces', CAF: 'Canadian Armed Forces',
-    CRF: 'Chinese Rapid Forces', GFI: 'Ground Force of Iran',
+    CRF: 'Canadian Resistance Forces', GFI: 'Ground Force of Iran',
     IMF: 'Insurgent Militia Forces', MEI: 'Middle Eastern Insurgents',
     PLA: "People's Liberation Army", PLAAGF: 'PLA Airborne',
     PLANMC: 'PLA Naval Marines', RGF: 'Russian Ground Forces',
@@ -232,14 +528,17 @@
 
     // Find layer by raw name or use first
     let idx = 0;
+    let resolvedLayer = true;
     if (layerRaw) {
       const found = layers.findIndex(l => l.rawName === layerRaw);
       if (found >= 0) idx = found;
+      else resolvedLayer = false;
     }
 
     document.getElementById('map-grid').classList.add('hidden');
     const mv = document.getElementById('map-view');
     mv.classList.remove('hidden');
+    setLeftSidebarOpen(leftSidebarOpen || !layerRaw || !resolvedLayer);
 
     renderLayerList(layers, idx);
     selectLayer(layers, idx);
@@ -262,6 +561,7 @@
       item.addEventListener('click', () => {
         selectLayer(layers, i);
         window.location.hash = `#/${currentMapId}/${l.rawName}`;
+        setLeftSidebarOpen(false);
         // Update active class
         list.querySelectorAll('.layer-item').forEach((el, j) => {
           el.classList.toggle('active', j === i);
@@ -280,6 +580,7 @@
     activeTeam = null;
     activeDestructionPhase = null;
     capturedSubPoints = {};
+    stagingFocus = null;
     initializeTeamSelections(layer);
 
     // Update header info
@@ -341,19 +642,20 @@
     if (laneNames.length > 0) {
       const captureSteps = getCaptureSteps();
       const captureCount = captureSteps.length;
-      // Compute which lanes are still possible given the current capture sequence
       let remainingLaneNames = laneNames;
       let isFreeMode = false;
-      if (activeTeam && captureCount > 0) {
-        const remaining = getRemainingLanes(layer, captureSequence, activeTeam);
-        remainingLaneNames = laneNames.filter(n => n in remaining);
-        if (remainingLaneNames.length === 0) {
-          isFreeMode = true;
+      if (activeTeam) {
+        const visibleLanes = getVisibleProgressionLanes(layer, activeTeam);
+        if (visibleLanes) {
+          remainingLaneNames = laneNames.filter((name) => name in visibleLanes);
+          if (captureCount > 0 && remainingLaneNames.length === 0) {
+            isFreeMode = true;
+          }
         }
       }
       const remainingSet = new Set(remainingLaneNames);
 
-      const showReset = activeTeam && (captureSequence.length > 0 || activeLane);
+      const showReset = activeTeam && (captureSequence.length > 0 || activeLane || stagingFocus);
       laneHtml = `<div class="lane-controls">
         <div class="lane-buttons">
           <button class="lane-btn${!activeLane ? ' active' : ''}" data-lane="">All</button>
@@ -368,7 +670,9 @@
           ${activeLane
             ? `Lane: <strong>${activeLane}</strong>`
             : (captureCount === 0
-                ? `<em>Click first capture point to narrow lanes</em>`
+                ? (stagingFocus
+                  ? `Staging on <strong>${escapeHtml(getStagingFocusLabel(layer))}</strong> · ${remainingLaneNames.length} lane${remainingLaneNames.length === 1 ? '' : 's'} consistent`
+                    : `<em>Click a likely objective to stage intent, then click it again when the live first cap confirms</em>`)
                 : isFreeMode
                   ? `<strong>Free mode</strong> · ${captureCount} captured · path doesn't match known lanes`
                   : `${captureCount} captured · ${remainingLaneNames.length} lane${remainingLaneNames.length === 1 ? '' : 's'} possible`)}
@@ -422,14 +726,31 @@
     t1Panel.classList.toggle('team-active', activeTeam === 'team1');
     t2Panel.classList.toggle('team-active', activeTeam === 'team2');
 
-    document.getElementById('match-info').innerHTML = `
+    const miEl = document.getElementById('match-info');
+    const hasLanes = laneHtml.length > 0;
+    const toggleHtml = hasLanes
+      ? `<button class="match-info-toggle" id="match-info-toggle" title="Collapse / expand" aria-label="Toggle lane panel">&#9662;</button>`
+      : '';
+    miEl.innerHTML = `
+      ${toggleHtml}
       <div class="gamemode-label">${gm}</div>
       <div class="map-size">${layer.mapSize || ''}</div>
       ${laneHtml}${phaseHtml}${tcHtml}`;
+    miEl.classList.toggle('collapsed', hasLanes && matchInfoCollapsed);
+    if (hasLanes) {
+      const toggleBtn = document.getElementById('match-info-toggle');
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+          matchInfoCollapsed = !matchInfoCollapsed;
+          miEl.classList.toggle('collapsed', matchInfoCollapsed);
+        });
+      }
+    }
 
     bindTeamPanelEvents(layer);
     bindLaneEvents(layer);
     bindPhaseEvents(layer);
+    renderStrategyDrawer(layer);
   }
 
   function extractFactionId(unitName) {
@@ -500,6 +821,7 @@
       captureSequence = [];
       capturedSubPoints = {};
       activeLane = null;
+      stagingFocus = null;
     }
 
     renderTopPanel(layer);
@@ -530,6 +852,7 @@
         captureSequence = [];
         capturedSubPoints = {};
         activeLane = null;
+        stagingFocus = null;
         renderTopPanel(layer);
         redrawMarkers(layer);
       });
@@ -881,7 +1204,7 @@
   // Find all cluster tokens that have a sub-point at the given coordinates.
   // Used to alias shared physical points across multiple cluster IDs (e.g.
   // C2 and D2 both have "Cannabis Farm" at the same position).
-  function findClustersAtPosition(layer, x, y, tolerance = 100) {
+  function findClustersAtPosition(layer, x, y, tolerance = 300) {
     const objectives = layer.objectives || {};
     const tol2 = tolerance * tolerance;
     const tokens = new Set();
@@ -906,6 +1229,35 @@
       }
     }
     return tokens;
+  }
+
+  // Collect every unique sub-point name across all clusters whose sub-point
+  // shares this physical position. Squad's data sometimes labels the same
+  // physical capture point differently in different clusters (e.g. Al Basrah
+  // RAAS_v1: A6/B5 call (-6659, 87366) "Abul Khasib West" while C6 calls it
+  // "Abul Khasib"). Marker dedup picks the first one and the others vanish
+  // from the map; this helper gives the renderer all the names so the
+  // surviving marker can show them combined.
+  function getSubPointNamesAtPosition(layer, x, y, tolerance = 300) {
+    const objectives = layer.objectives || {};
+    const tol2 = tolerance * tolerance;
+    const names = [];
+    const seen = new Set();
+    for (const [key, obj] of Object.entries(objectives)) {
+      if (/team[12]main/.test(normalizeObjectiveToken(key))) continue;
+      const points = Array.isArray(obj.points) ? obj.points : [];
+      for (const p of points) {
+        if (!Number.isFinite(p.location_x) || !Number.isFinite(p.location_y)) continue;
+        const dx = p.location_x - x;
+        const dy = p.location_y - y;
+        if (dx * dx + dy * dy > tol2) continue;
+        const nm = p.name;
+        if (!nm || seen.has(nm)) continue;
+        seen.add(nm);
+        names.push(nm);
+      }
+    }
+    return names;
   }
 
   // Union of all point tokens that appear in any remaining lane (for filtering display)
@@ -986,16 +1338,179 @@
     return match?.label || token;
   }
 
+  function getTokenDisplayLabel(layer, token) {
+    const normalized = normalizeObjectiveToken(token);
+    if (hasStagingFocusToken(normalized) && stagingFocus?.name) return stagingFocus.name;
+    if (capturedSubPoints[normalized]?.name) return capturedSubPoints[normalized].name;
+    return getObjectiveLabelByToken(layer, normalized);
+  }
+
+  function getTokenDisplayCandidates(layer, token) {
+    const normalized = normalizeObjectiveToken(token);
+    if (hasStagingFocusToken(normalized) && stagingFocus?.name) return [stagingFocus.name];
+    if (capturedSubPoints[normalized]?.name) return [capturedSubPoints[normalized].name];
+
+    const objectives = layer.objectives || {};
+    const objectiveEntry = Object.entries(objectives)
+      .find(([key]) => normalizeObjectiveToken(key) === normalized);
+    if (!objectiveEntry) return [getObjectiveLabelByToken(layer, normalized)];
+
+    const [, objective] = objectiveEntry;
+    const allNames = getObjectiveAllNames(objective);
+    return allNames.length > 0 ? allNames : [getObjectiveLabelByToken(layer, normalized)];
+  }
+
+  function getStagingFocusTokens() {
+    if (!stagingFocus) return [];
+    if (Array.isArray(stagingFocus.tokens)) return stagingFocus.tokens;
+    return stagingFocus.token ? [stagingFocus.token] : [];
+  }
+
+  function hasStagingFocusToken(token) {
+    if (!stagingFocus) return false;
+    const normalized = normalizeObjectiveToken(token);
+    return getStagingFocusTokens().includes(normalized);
+  }
+
+  function getStagingFocusLabel(layer) {
+    if (!stagingFocus) return '';
+    if (stagingFocus.name) return stagingFocus.name;
+    const primaryToken = getStagingFocusTokens()[0];
+    return primaryToken ? getObjectiveLabelByToken(layer, primaryToken) : '';
+  }
+
+  function isStagingFocusSelection(token, position) {
+    if (!stagingFocus) return false;
+    if (!hasStagingFocusToken(token)) return false;
+    if (!Number.isFinite(stagingFocus.x) || !Number.isFinite(stagingFocus.y)) return true;
+    return Math.abs((position?.x ?? NaN) - stagingFocus.x) < 1 && Math.abs((position?.y ?? NaN) - stagingFocus.y) < 1;
+  }
+
+  function getStagingFocusLanes(layer, team) {
+    const lanes = getLanes(layer);
+    if (!stagingFocus || !team) return lanes;
+    const filtered = {};
+    for (const [name, lane] of Object.entries(lanes)) {
+      if (getLaneCaptureOrder(lane, team).some((token) => hasStagingFocusToken(token))) {
+        filtered[name] = lane;
+      }
+    }
+    return Object.keys(filtered).length ? filtered : lanes;
+  }
+
+  function getVisibleProgressionLanes(layer, team) {
+    if (!team) return null;
+    let visible = null;
+    if (captureSequence.length > 0) {
+      const remaining = getRemainingLanes(layer, captureSequence, team);
+      visible = Object.keys(remaining).length ? remaining : null;
+    } else {
+      visible = getStagingFocusLanes(layer, team);
+    }
+    if (!visible) return null;
+    if (activeLane) {
+      return visible[activeLane] ? { [activeLane]: visible[activeLane] } : null;
+    }
+    return visible;
+  }
+
+  function uniqueLabelsFromTokens(layer, tokens) {
+    const labels = [];
+    for (const token of (tokens || [])) {
+      labels.push(...getTokenDisplayCandidates(layer, token));
+    }
+    return [...new Set(labels.filter(Boolean))];
+  }
+
+  function getLiveObjectiveState(layer) {
+    if (!activeTeam) return null;
+
+    const fixedPath = getAASPath(layer);
+    if (fixedPath) {
+      const order = getLaneCaptureOrder(fixedPath, activeTeam);
+      const currentTokens = captureSequence.length ? (getCaptureSteps(captureSequence).at(-1)?.tokens || []) : [];
+      const nextToken = order[getCaptureSteps(captureSequence).length] || null;
+      return {
+        phase: captureSequence.length ? 'live' : 'staging',
+        laneCount: 1,
+        focusLabel: '',
+        currentLabels: uniqueLabelsFromTokens(layer, currentTokens),
+        firstLabels: uniqueLabelsFromTokens(layer, order[0] ? [order[0]] : []),
+        nextLabels: uniqueLabelsFromTokens(layer, nextToken ? [nextToken] : [])
+      };
+    }
+
+    const visibleLanes = getVisibleProgressionLanes(layer, activeTeam);
+    if (!visibleLanes) return null;
+    const laneCount = Object.keys(visibleLanes).length;
+    const steps = getCaptureSteps(captureSequence);
+    if (!steps.length) {
+      const firstTokens = Array.from(getNextCaptureOptionsFromSet(visibleLanes, [], activeTeam));
+      const thinkAhead = [];
+      for (const lane of Object.values(visibleLanes)) {
+        const order = getLaneCaptureOrder(lane, activeTeam);
+        if (order[1]) thinkAhead.push(order[1]);
+      }
+      return {
+        phase: stagingFocus ? 'staging-focus' : 'staging',
+        laneCount,
+        focusLabel: getStagingFocusLabel(layer),
+        currentLabels: [],
+        firstLabels: uniqueLabelsFromTokens(layer, firstTokens),
+        nextLabels: uniqueLabelsFromTokens(layer, thinkAhead)
+      };
+    }
+
+    const currentTokens = steps.at(-1)?.tokens || [];
+    const nextTokens = Array.from(getNextCaptureOptionsFromSet(visibleLanes, captureSequence, activeTeam));
+    return {
+      phase: 'live',
+      laneCount,
+      focusLabel: '',
+      currentLabels: uniqueLabelsFromTokens(layer, currentTokens),
+      firstLabels: [],
+      nextLabels: uniqueLabelsFromTokens(layer, nextTokens)
+    };
+  }
+
+  function buildLiveObjectiveSummaryHtml(state) {
+    const buildRow = (label, values, rowClass = '') => {
+      if (!values || !values.length) return '';
+      return `<div class="live-objective-row${rowClass ? ` ${rowClass}` : ''}">
+        <span class="live-objective-label">${label}</span>
+        <span class="live-objective-value">${escapeHtml(values.join(' / '))}</span>
+      </div>`;
+    };
+
+    const title = state.phase === 'live'
+      ? `Live objective read · ${state.laneCount} lane${state.laneCount === 1 ? '' : 's'}`
+      : state.phase === 'staging-focus'
+        ? `Staging focus · ${state.laneCount} lane${state.laneCount === 1 ? '' : 's'}`
+        : `Opening read · ${state.laneCount} lane${state.laneCount === 1 ? '' : 's'}`;
+
+    return `<div class="live-objective-summary">
+      <div class="live-objective-title">${escapeHtml(title)}</div>
+      ${state.focusLabel ? `<div class="live-objective-row focus"><span class="live-objective-label">Focus</span><span class="live-objective-value">${escapeHtml(state.focusLabel)}</span></div>` : ''}
+      ${buildRow(state.phase === 'live' ? 'Current' : 'Likely first', state.phase === 'live' ? state.currentLabels : state.firstLabels, state.phase === 'live' ? 'current' : 'first')}
+      ${buildRow('Think ahead', state.nextLabels, 'next')}
+    </div>`;
+  }
+
   // ---- Leaflet Map ----
   function renderMap(layer) {
     const container = document.getElementById('leaflet-map');
 
     // Clean up previous map
     resetLaneLineAnimations();
+    if (mapResizeObserver) {
+      mapResizeObserver.disconnect();
+      mapResizeObserver = null;
+    }
     if (leafletMap) {
       leafletMap.remove();
       leafletMap = null;
     }
+    userInteractedWithMap = false;
 
     // Map texture corners define the UE world coordinate bounds of the texture
     const corners = layer.mapTextureCorners || [];
@@ -1061,6 +1576,28 @@
     // Fit map to bounds so it fills the container with no dead space
     leafletMap.fitBounds(mapBounds);
     leafletMap.setMaxBounds(mapBounds.pad(0.05));
+
+    // Track user interaction so container resizes don't stomp the user's view.
+    // mousedown/wheel/touchstart fire only for user input, unlike movestart/zoomstart
+    // which also fire for programmatic fitBounds calls.
+    const markInteracted = () => { userInteractedWithMap = true; };
+    container.addEventListener('mousedown', markInteracted, { once: true });
+    container.addEventListener('wheel', markInteracted, { once: true, passive: true });
+    container.addEventListener('touchstart', markInteracted, { once: true, passive: true });
+
+    // Re-measure and re-fit on container resize (sidebar toggle, window resize,
+    // strategy drawer, etc.). Fixes the initial-render race where the sidebar
+    // width transition leaves the map fit to a stale container width.
+    if (typeof ResizeObserver !== 'undefined') {
+      mapResizeObserver = new ResizeObserver(() => {
+        if (!leafletMap) return;
+        leafletMap.invalidateSize({ animate: false });
+        if (!userInteractedWithMap) {
+          leafletMap.fitBounds(mapBounds, { animate: false });
+        }
+      });
+      mapResizeObserver.observe(container);
+    }
 
     // Add markers
     if (markerGroup) {
@@ -1132,11 +1669,7 @@
       // Progressive RAAS: walk captureSequence, then expose the remaining lane
       // union or a selected lane filtered by the same progression. If the
       // sequence doesn't match any lane prefix, fall back to free mode.
-      const remainingLanes = getRemainingLanes(layer, captureSequence, activeTeam);
-      const hasMatchingLanes = Object.keys(remainingLanes).length > 0;
-      progressionLanes = activeLane
-        ? (remainingLanes[activeLane] ? { [activeLane]: remainingLanes[activeLane] } : null)
-        : (hasMatchingLanes ? remainingLanes : null);
+      progressionLanes = getVisibleProgressionLanes(layer, activeTeam);
 
       // Always include mains as captured
       for (const entry of orderedObjectives) {
@@ -1207,13 +1740,28 @@
     // Collect positions in lane order for drawing connecting lines
     const lanePositions = [];
     // Track rendered marker positions to dedupe overlapping markers
-    // (e.g. C2 and D2 both render Cannabis Farm at the same coords)
-    const renderedPositionKeys = new Set();
-    const positionKey = (x, y) => `${Math.round(x / 50)}:${Math.round(y / 50)}`;
+    // (e.g. A1 and B1 both render Naval Refueling on Goose Bay, or B1's
+    // Train Yard at (-84322,-102468) vs C1's Train Yard2 at (-84222,-102368)
+    // which are 1.41m apart — extraction artifacts for the same physical
+    // flag). Use an array + Euclidean check because a grid hash can't
+    // reliably merge near-duplicates — any two points straddling a cell
+    // boundary will hash to different cells no matter the cell size.
+    const renderedPositions = [];
+    const DEDUPE_TOL_UE = 300; // 3m; genuinely distinct capture points are
+                               // separated by thousands of UE on every map.
+    const DEDUPE_TOL_SQ = DEDUPE_TOL_UE * DEDUPE_TOL_UE;
+    const positionAlreadyRendered = (x, y, list = renderedPositions) => {
+      for (const p of list) {
+        const dx = p.x - x;
+        const dy = p.y - y;
+        if (dx * dx + dy * dy <= DEDUPE_TOL_SQ) return true;
+      }
+      return false;
+    };
 
     // Precompute positions of captured points so uncaptured markers at the
     // same position get suppressed (captured always wins the marker slot).
-    const capturedPositionKeys = new Set();
+    const capturedPositions = [];
     for (const entry of orderedObjectives) {
       const t = normalizeObjectiveToken(entry.key);
       if (!capturedKeys.has(t) || /team[12]main/.test(t)) continue;
@@ -1221,7 +1769,7 @@
       const x = sel?.x ?? entry.position?.x;
       const y = sel?.y ?? entry.position?.y;
       if (Number.isFinite(x) && Number.isFinite(y)) {
-        capturedPositionKeys.add(positionKey(x, y));
+        capturedPositions.push({ x, y });
       }
     }
 
@@ -1300,26 +1848,41 @@
           ? subPoints.filter(sp => sp.x === selectedSp.x && sp.y === selectedSp.y)
           : subPoints;
 
+        // Track which sub-points actually made it onto the map so the lane
+        // line terminates at a visible marker rather than at avgLocation
+        // (which, when one of the cluster's sub-points got deduped by
+        // another lane's alias, falls in dead space). Goose Bay Bravo B1
+        // is the canonical example: Naval Refueling Station is shared with
+        // A1, leaving only Train Yard as B1's rendered marker.
+        const renderedSubPoints = [];
+
         for (const sp of pointsToRender) {
           // Dedupe markers that share a physical position. Captured clusters
           // get priority — uncaptured ones at a captured position are hidden.
-          const pkey = positionKey(sp.x, sp.y);
-          if (renderedPositionKeys.has(pkey)) continue;
-          if (!isCaptured && capturedPositionKeys.has(pkey)) continue;
-          renderedPositionKeys.add(pkey);
+          if (positionAlreadyRendered(sp.x, sp.y)) continue;
+          if (!isCaptured && positionAlreadyRendered(sp.x, sp.y, capturedPositions)) continue;
+          renderedPositions.push({ x: sp.x, y: sp.y });
+          renderedSubPoints.push(sp);
 
           const size = isLookahead ? 32 : 36;
           const icon = L.divIcon({
             className: '',
-            html: `<div class="obj-marker ${markerClass}${extraClass}" style="width:${size}px;height:${size}px${colorStyleSuffix}">${badgeNum ?? ''}</div>`,
+            html: `<div class="obj-marker ${markerClass}${extraClass}${isStagingFocusSelection(entryToken, sp) ? ' staging-focus' : ''}" style="width:${size}px;height:${size}px${colorStyleSuffix}">${badgeNum ?? ''}</div>`,
             iconSize: [size, size],
             iconAnchor: [size / 2, size / 2]
           });
 
           const marker = L.marker([sp.y, sp.x], { icon: icon });
 
-          if (shouldShowPermanentObjectiveLabel(sp.name)) {
-            marker.bindTooltip(sp.name, {
+          // When several clusters label the same physical point differently
+          // (e.g. Al Basrah RAAS_v1 (-6659, 87366) is "Abul Khasib West" in
+          // A6/B5 and "Abul Khasib" in C6), surface every unique alias so the
+          // surviving marker doesn't hide the lane-relevant name.
+          const aliasNames = getSubPointNamesAtPosition(layer, sp.x, sp.y);
+          const labelText = aliasNames.length > 1 ? aliasNames.join(' / ') : sp.name;
+
+          if (shouldShowPermanentObjectiveLabel(labelText)) {
+            marker.bindTooltip(labelText, {
               permanent: true,
               direction: 'top',
               offset: [0, -size / 2 - 2],
@@ -1332,6 +1895,7 @@
             // walks any aliased clusters at this physical position and writes
             // their sub-point records too.
             marker.on('click', () => {
+              stagingFocus = null;
               advanceCaptureSequence(layer, entryToken, { x: sp.x, y: sp.y, name: sp.name });
             });
           } else if (isCaptured && lastCapturedTokens.has(entryToken) && styleAsLane && !isAAS) {
@@ -1341,15 +1905,33 @@
               retreatCaptureSequence(layer);
             });
           } else if (!isLookahead) {
-            marker.bindPopup(`<b>${escapeHtml(sp.name)}</b>`);
+            marker.bindPopup(`<b>${escapeHtml(labelText)}</b>`);
           }
 
           marker.addTo(markerGroup);
         }
-        // Use selected sub-point position for line if captured, otherwise avg position
-        const linePos = (isCaptured && selectedSp)
-          ? { x: selectedSp.x, y: selectedSp.y }
-          : entry.position;
+        // linePos: anchor the lane line to a visible marker rather than
+        // avgLocation. Priority:
+        //   1. Captured selection (user explicitly picked one sub-point).
+        //   2. Exactly one sub-point rendered (the rest deduped by aliases) —
+        //      use that one so the line terminates where the user sees it.
+        //   3. Multiple sub-points rendered — avgLocation is the sensible
+        //      centroid.
+        //   4. Nothing rendered (all sub-points collided with earlier
+        //      aliases) — fall back to the first sub-point's position so
+        //      the line lands on a visible marker from the colliding cluster.
+        let linePos;
+        if (isCaptured && selectedSp) {
+          linePos = { x: selectedSp.x, y: selectedSp.y };
+        } else if (renderedSubPoints.length === 1) {
+          linePos = { x: renderedSubPoints[0].x, y: renderedSubPoints[0].y };
+        } else if (renderedSubPoints.length > 1) {
+          linePos = entry.position;
+        } else if (pointsToRender.length > 0) {
+          linePos = { x: pointsToRender[0].x, y: pointsToRender[0].y };
+        } else {
+          linePos = entry.position;
+        }
         if (styleAsLane) {
           lanePositions.push({ pos: linePos, token: entryToken, isCaptured, isNext: isNextOption, step: badgeNum });
         }
@@ -1361,13 +1943,14 @@
         // otherwise the line jumps over the deduped cluster entirely.
         let skipMarker = false;
         if (!isMain) {
-          const pkey = positionKey(entry.position.x, entry.position.y);
-          if (renderedPositionKeys.has(pkey)) {
+          const px = entry.position.x;
+          const py = entry.position.y;
+          if (positionAlreadyRendered(px, py)) {
             skipMarker = true;
-          } else if (!isCaptured && capturedPositionKeys.has(pkey)) {
+          } else if (!isCaptured && positionAlreadyRendered(px, py, capturedPositions)) {
             skipMarker = true;
           } else {
-            renderedPositionKeys.add(pkey);
+            renderedPositions.push({ x: px, y: py });
           }
         }
 
@@ -1378,7 +1961,7 @@
 
           const icon = L.divIcon({
             className: '',
-            html: `<div class="obj-marker ${markerClass}${extraClass}" style="width:${size}px;height:${size}px${colorStyleSuffix}">${badgeText}</div>`,
+            html: `<div class="obj-marker ${markerClass}${extraClass}${isStagingFocusSelection(entryToken, entry.position) ? ' staging-focus' : ''}" style="width:${size}px;height:${size}px${colorStyleSuffix}">${badgeText}</div>`,
             iconSize: [size, size],
             iconAnchor: [size / 2, size / 2]
           });
@@ -1400,6 +1983,7 @@
           if (isNextOption && styleAsLane) {
             // Next-capture: click to advance the capture sequence
             marker.on('click', () => {
+              stagingFocus = null;
               advanceCaptureSequence(layer, entryToken, entry.position);
             });
           } else if (isCaptured && lastCapturedTokens.has(entryToken) && styleAsLane && !isAAS) {
@@ -1448,13 +2032,20 @@
   // The clicked token leads, with aliases following so retreat removes them all.
   // `position` may carry a `name` to seed the sub-point label for fresh aliases.
   function advanceCaptureSequence(layer, token, position) {
+    stagingFocus = null;
     let aliases = [token];
     if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) {
       const found = findClustersAtPosition(layer, position.x, position.y);
       found.delete(token);
       aliases = [token, ...found];
+    }
+    // Filter out any aliases already captured
+    const captured = new Set(captureSequence);
+    const fresh = aliases.filter(t => !captured.has(t));
+    if (fresh.length === 0) return;
+    if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) {
       const seedName = position.name || '';
-      for (const alias of aliases) {
+      for (const alias of fresh) {
         capturedSubPoints[alias] = {
           x: position.x,
           y: position.y,
@@ -1462,10 +2053,6 @@
         };
       }
     }
-    // Filter out any aliases already captured
-    const captured = new Set(captureSequence);
-    const fresh = aliases.filter(t => !captured.has(t));
-    if (fresh.length === 0) return;
     captureSequence = [...captureSequence, ...fresh];
     renderTopPanel(layer);
     redrawMarkers(layer);
@@ -2071,20 +2658,23 @@
     const defense = Object.fromEntries(DOCTRINE_KEYS.map((key) => [key, 0]));
     const watchouts = new Set();
 
+    const waterHazard = (window.WATER_HAZARDS || {})[layer.mapId] || null;
+    if (waterHazard) {
+      watchouts.add(waterHazard.summary);
+    }
+
     if (sizeTier === 'large') {
       addArchetypeScores(offense, { AirAssault: 26, Motorized: 20, CombinedArms: 16, Mechanized: 10, Armored: 6, Support: 4 });
       addArchetypeScores(defense, { CombinedArms: 16, LightInfantry: 14, Support: 12, Motorized: 10, Mechanized: 8, AirAssault: 6, Armored: 4 });
-      watchouts.add('Slow tracked-heavy packages can stall badly on long cross-map rotations.');
+      watchouts.add('Heavy armor stalls on long rotations.');
     } else if (sizeTier === 'medium') {
       addArchetypeScores(offense, { CombinedArms: 14, Motorized: 12, Mechanized: 10, LightInfantry: 8, AirAssault: 8, Armored: 8, Support: 6 });
       addArchetypeScores(defense, { CombinedArms: 14, LightInfantry: 12, Support: 10, Mechanized: 8, Armored: 8, Motorized: 6, AirAssault: 4 });
     } else {
       addArchetypeScores(offense, { LightInfantry: 18, Support: 12, Mechanized: 10, CombinedArms: 8, Motorized: 6, Armored: 4 });
       addArchetypeScores(defense, { LightInfantry: 20, Support: 14, Mechanized: 10, CombinedArms: 8, Armored: 4, Motorized: 4 });
-      watchouts.add('Compact layers reward point-fight sustainment more than raw top speed.');
+      watchouts.add('Compact layer — sustainment beats top speed.');
     }
-
-    const waterHazard = (window.WATER_HAZARDS || {})[layer.mapId] || null;
 
     if (traitSet.has('water')) {
       const severity = waterHazard ? waterHazard.severity : 'moderate';
@@ -2098,36 +2688,34 @@
         addArchetypeScores(offense, { AirAssault: 4, Motorized: 4, CombinedArms: 3, LightInfantry: 3 });
         addArchetypeScores(defense, { LightInfantry: 4, Support: 4, CombinedArms: 3, Mechanized: 3 });
       }
-      if (waterHazard) {
-        watchouts.add(waterHazard.summary);
-      } else {
-        watchouts.add('Water crossings and shoreline flanks punish teams with no air or boat options.');
+      if (!waterHazard) {
+        watchouts.add('No air/boats = stuck on bridges.');
       }
     }
     if (traitSet.has('forest')) {
       addArchetypeScores(offense, { LightInfantry: 14, Mechanized: 10, Support: 8, Motorized: 4, CombinedArms: 4, Armored: -4 });
       addArchetypeScores(defense, { LightInfantry: 16, Support: 10, Mechanized: 8, CombinedArms: 6, Armored: -2 });
-      watchouts.add('Forested terrain cuts sightlines and makes infantry support matter more than gun size.');
+      watchouts.add('Short sightlines — infantry support matters more than gun size.');
     }
     if (traitSet.has('desert') || traitSet.has('open')) {
       addArchetypeScores(offense, { CombinedArms: 12, Armored: 10, Motorized: 8, AirAssault: 6, Mechanized: 6 });
       addArchetypeScores(defense, { CombinedArms: 10, Armored: 8, Support: 6, Mechanized: 6, LightInfantry: 4 });
-      watchouts.add('Open ground punishes weak logistics and slow recovery after losing tempo.');
+      watchouts.add('Open ground — logis die fast, tempo swings hurt.');
     }
     if (traitSet.has('urban')) {
       addArchetypeScores(offense, { LightInfantry: 16, Support: 12, CombinedArms: 6, Mechanized: 4, Armored: -4 });
       addArchetypeScores(defense, { LightInfantry: 18, Support: 14, Mechanized: 6, CombinedArms: 6, Armored: -6 });
-      watchouts.add('Dense compounds reduce the value of pure armor packages unless they have strong infantry support.');
+      watchouts.add('Dense compounds — armor needs infantry support.');
     }
     if (traitSet.has('mountain')) {
       addArchetypeScores(offense, { AirAssault: 16, LightInfantry: 12, Motorized: 8, CombinedArms: 4, Armored: -6 });
       addArchetypeScores(defense, { LightInfantry: 16, Support: 10, Mechanized: 6, AirAssault: 6, Armored: -4 });
-      watchouts.add('Vertical terrain rewards air mobility and punishes armor that cannot reposition quickly.');
+      watchouts.add('Vertical terrain — air mobility wins, slow armor loses.');
     }
     if (traitSet.has('snow') || traitSet.has('wetland')) {
       addArchetypeScores(offense, { Mechanized: 8, Support: 6, CombinedArms: 6, LightInfantry: 4, Motorized: 2 });
       addArchetypeScores(defense, { Mechanized: 10, Support: 8, LightInfantry: 6, CombinedArms: 6 });
-      watchouts.add('Soft ground and chokepoints make sustainment and route flexibility more important than raw acceleration.');
+      watchouts.add('Soft ground — route flexibility beats raw speed.');
     }
 
     const offenseRanked = Object.entries(offense)
@@ -2153,9 +2741,11 @@
       diagonalKm: bounds.diagonalKm,
       sizeTier,
       traits,
+      offenseKeys: offenseRanked.map((name) => Object.keys(ARCHETYPE_LABELS).find((key) => ARCHETYPE_LABELS[key] === name)).filter(Boolean),
+      defenseKeys: defenseRanked.map((name) => Object.keys(ARCHETYPE_LABELS).find((key) => ARCHETYPE_LABELS[key] === name)).filter(Boolean),
       offense: offenseRanked,
       defense: defenseRanked,
-      watchouts: Array.from(watchouts).slice(0, 3),
+      watchouts: Array.from(watchouts).slice(0, 4),
       traitSet,
       waterHazard
     };
@@ -2163,6 +2753,13 @@
 
   function getCapabilityCounts(layer, teamKey) {
     return Object.fromEntries(getTeamVehicleCapabilities(layer, teamKey));
+  }
+
+  function getTeamFitTier(score) {
+    if (score >= 69) return { label: 'Strong fit', tone: 'strong' };
+    if (score >= 57) return { label: 'Good fit', tone: 'good' };
+    if (score >= 45) return { label: 'Situational fit', tone: 'situational' };
+    return { label: 'Poor fit', tone: 'poor' };
   }
 
   function evaluateTeamMapFit(layer, teamKey, selectedOption, mapSuitability) {
@@ -2177,22 +2774,31 @@
     const scoutMobility = capabilities['Scout Mobility'] || 0;
     const mobilityCount = logistics + transport + lightVehicles + scoutMobility;
 
-    let score = 50;
+    let score = 38;
     const strengths = [];
     const risks = [];
 
     if (mapSuitability.sizeTier === 'large') {
       if (helicopters > 0 || doctrines.has('AirAssault')) {
-        score += 12;
-        strengths.push('has air mobility for long-route tempo swings');
+        score += 9;
+        strengths.push('Air mobility');
       }
       if (mobilityCount >= 3 || doctrines.has('Motorized')) {
-        score += 10;
-        strengths.push('has enough transport and logistics to keep pace on a large layer');
+        score += 8;
+        strengths.push('Mobile enough for large map');
       }
       if (helicopters === 0 && heavyArmor >= 3 && mobilityCount <= 1) {
-        score -= 16;
-        risks.push('is vulnerable to getting stuck mid-map because it is heavy and slow to rotate');
+        score -= 18;
+        risks.push('Heavy and slow to rotate');
+      }
+    } else if (mapSuitability.sizeTier === 'small') {
+      if (heavyArmor >= 3 && !doctrines.has('CombinedArms') && !doctrines.has('Mechanized')) {
+        score -= 8;
+        risks.push('Too much armor for compact layer');
+      }
+      if (doctrines.has('LightInfantry') || doctrines.has('Support')) {
+        score += 6;
+        strengths.push('Built for close fights');
       }
     }
 
@@ -2200,124 +2806,399 @@
       const wh = mapSuitability.waterHazard;
       const severity = wh ? wh.severity : 'moderate';
       if (boats > 0) {
-        const bonus = severity === 'high' ? 12 : severity === 'moderate' ? 8 : 4;
+        const bonus = severity === 'high' ? 10 : severity === 'moderate' ? 7 : 3;
         score += bonus;
-        strengths.push('can use water or shoreline routes instead of fighting every bridge');
+        strengths.push('Boats bypass bridges');
       } else if (helicopters > 0) {
         if (severity === 'high') {
-          score += 6;
-          strengths.push('air mobility bypasses impassable water barriers');
+          score += 5;
+          strengths.push('Air bypasses water');
         }
       } else {
-        const penalty = severity === 'high' ? -12 : severity === 'moderate' ? -7 : -3;
+        const penalty = severity === 'high' ? -14 : severity === 'moderate' ? -8 : -4;
         score += penalty;
         if (severity === 'high') {
-          risks.push('has no way to bypass impassable water — forced into bridge chokepoints');
+          risks.push('No water bypass — forced to bridges');
         } else {
-          risks.push('has limited flank options around water obstacles');
+          risks.push('Limited water flanks');
         }
       }
     }
 
     if (mapSuitability.traitSet.has('forest')) {
       if (doctrines.has('LightInfantry') || doctrines.has('Support')) {
-        score += 9;
-        strengths.push('fits short-sightline infantry fights well');
+        score += 7;
+        strengths.push('Fits short-sightline infantry');
       }
       if (heavyArmor >= 3 && !doctrines.has('LightInfantry')) {
-        score -= 6;
-        risks.push('leans too hard on armor for a cover-heavy forested lane');
+        score -= 8;
+        risks.push('Armor-heavy for forest');
       }
     }
 
     if (mapSuitability.traitSet.has('desert') || mapSuitability.traitSet.has('open')) {
       if (heavyArmor >= 2 || doctrines.has('CombinedArms') || doctrines.has('Armored')) {
-        score += 10;
-        strengths.push('can exploit open sightlines and longer vehicle routes');
+        score += 8;
+        strengths.push('Exploits open sightlines');
       }
       if (mobilityCount <= 1 && helicopters === 0) {
-        score -= 8;
-        risks.push('may struggle to recover when the line stretches across open ground');
+        score -= 10;
+        risks.push('Slow to recover on open ground');
       }
     }
 
     if (mapSuitability.traitSet.has('urban')) {
       if (doctrines.has('LightInfantry') || doctrines.has('Support')) {
-        score += 10;
-        strengths.push('has the infantry bias needed for compound-heavy objectives');
+        score += 8;
+        strengths.push('Infantry bias for compounds');
       }
       if (heavyArmor >= 3 && !doctrines.has('CombinedArms') && !doctrines.has('Mechanized')) {
-        score -= 8;
-        risks.push('is armor-heavy for tight urban pushes and defense resets');
+        score -= 10;
+        risks.push('Armor-heavy for urban');
       }
     }
 
     if (mapSuitability.traitSet.has('mountain')) {
       if (helicopters > 0 || doctrines.has('AirAssault') || doctrines.has('LightInfantry')) {
-        score += 10;
-        strengths.push('can handle vertical terrain and awkward approach angles');
+        score += 8;
+        strengths.push('Handles vertical terrain');
       }
       if (heavyArmor >= 3 && helicopters === 0) {
-        score -= 10;
-        risks.push('has poor repositioning tools for mountain terrain');
+        score -= 12;
+        risks.push('Poor mountain mobility');
       }
     }
 
     if (mapSuitability.traitSet.has('snow') || mapSuitability.traitSet.has('wetland')) {
       if (logistics >= 1 || doctrines.has('Mechanized') || doctrines.has('Support')) {
-        score += 6;
-        strengths.push('has the sustainment to survive slower route conditions');
+        score += 5;
+        strengths.push('Sustainment fits soft ground');
+      } else {
+        score -= 6;
+        risks.push('May bog down on soft ground');
       }
     }
 
-    mapSuitability.offense.forEach((archetype) => {
-      const doctrineKey = Object.keys(ARCHETYPE_LABELS).find((key) => ARCHETYPE_LABELS[key] === archetype);
-      if (doctrineKey && doctrines.has(doctrineKey)) score += 3;
-    });
+    const offenseMatches = mapSuitability.offenseKeys.filter((key) => doctrines.has(key)).length;
+    const defenseMatches = mapSuitability.defenseKeys.filter((key) => doctrines.has(key)).length;
+    score += offenseMatches * 4;
+    score += defenseMatches * 3;
+    if ((offenseMatches + defenseMatches) >= 3) {
+      strengths.push('Matches preferred doctrines');
+    } else if ((offenseMatches + defenseMatches) === 0) {
+      score -= 8;
+      risks.push('Poor doctrine match');
+    }
+
+    if (doctrines.size === 0) {
+      score -= 4;
+      risks.push('Unclear doctrine tagging');
+    }
+
+    const normalizedScore = Math.max(18, Math.min(92, Math.round(score)));
+    const fitTier = getTeamFitTier(normalizedScore);
 
     return {
-      label: score >= 70 ? 'Strong fit' : score >= 58 ? 'Good fit' : score >= 46 ? 'Situational fit' : 'Poor fit',
-      tone: score >= 70 ? 'strong' : score >= 58 ? 'good' : score >= 46 ? 'situational' : 'poor',
+      score: normalizedScore,
+      label: fitTier.label,
+      tone: fitTier.tone,
       strengths: strengths.slice(0, 2),
       risks: risks.slice(0, 2)
     };
   }
 
-  function buildMapSuitabilitySection(layer) {
+  function getStrategyLaneSummary(layer) {
+    const laneNames = getLaneNames(layer);
+    if (!laneNames.length) return 'No lane graph on this layer';
+    if (activeLane) return `Locked to ${activeLane}`;
+    if (!activeTeam || captureSequence.length === 0) {
+      if (activeTeam && stagingFocus) {
+        const visibleLanes = getVisibleProgressionLanes(layer, activeTeam);
+        const laneCount = visibleLanes ? Object.keys(visibleLanes).length : laneNames.length;
+        return `Staging on ${getStagingFocusLabel(layer)} · ${laneCount} lane${laneCount === 1 ? '' : 's'} still fit`;
+      }
+      return `${laneNames.length} possible lanes before first cap`;
+    }
+    const remaining = getRemainingLanes(layer, captureSequence, activeTeam);
+    const remainingCount = Object.keys(remaining).length;
+    if (remainingCount === 0) return 'Free mode after capture sequence diverged';
+    return `${remainingCount} likely lane${remainingCount === 1 ? '' : 's'} after ${captureSequence.length} capture${captureSequence.length === 1 ? '' : 's'}`;
+  }
+
+  function buildStrategyPriorities(layer, mapSuitability, teamFits) {
+    const bullets = [];
+    if (getLaneNames(layer).length && captureSequence.length === 0) {
+      bullets.push(stagingFocus
+        ? `Stage around ${getStagingFocusLabel(layer)}, stay flexible.`
+        : 'Wait for first cap before committing heavy assets.');
+    }
+    if (mapSuitability.sizeTier === 'large') {
+      bullets.push('Pre-stage logis and transport — long resets hurt.');
+    }
+    if (mapSuitability.traitSet.has('water')) {
+      bullets.push("Keep a bypass route — don't rely on one bridge.");
+    }
+    if (mapSuitability.traitSet.has('urban')) {
+      bullets.push('Infantry first on compounds, armor holds angles.');
+    }
+    if (mapSuitability.traitSet.has('forest')) {
+      bullets.push('Short sightlines — overwatch beats gun size.');
+    }
+    if (mapSuitability.traitSet.has('desert') || mapSuitability.traitSet.has('open')) {
+      bullets.push('Protect logis from long-range picks on open ground.');
+    }
+    const delta = teamFits.team1.score - teamFits.team2.score;
+    if (Math.abs(delta) >= 10) {
+      bullets.push(delta > 0
+        ? 'Team 2 must disrupt tempo, not trade straight up.'
+        : 'Team 1 must disrupt tempo, not trade straight up.');
+    }
+    if (!bullets.length) {
+      bullets.push('Flexible opener, keep one reserve central.');
+    }
+    return bullets.slice(0, 4);
+  }
+
+  function getStrategyGuideGamemode(layer) {
+    const value = String(layer.Gamemode || layer.GameMode || '').toUpperCase();
+    if (value.includes('RAAS')) return 'RAAS';
+    if (value.includes('AAS')) return 'AAS';
+    if (value.includes('INVASION')) return 'INVASION';
+    if (value.includes('TC')) return 'TC';
+    if (value.includes('INSURGENCY')) return 'INSURGENCY';
+    return value || 'UNKNOWN';
+  }
+
+  function buildStrategyGuideContext(layer, mapSuitability, teamFits) {
+    const situations = new Set(['spawnNetwork']);
+    const laneNames = getLaneNames(layer);
+    const matchupDelta = teamFits.team1.score - teamFits.team2.score;
+
+    if (laneNames.length) situations.add('lanePlay');
+    if (laneNames.length && captureSequence.length === 0) situations.add('laneUncertainty');
+    if (mapSuitability.sizeTier === 'large' || mapSuitability.traitSet.has('water') || mapSuitability.traitSet.has('open')) {
+      situations.add('mobilityReset');
+    }
+    if (mapSuitability.traitSet.has('urban')) situations.add('compoundAssault');
+    if (mapSuitability.traitSet.has('urban') || mapSuitability.traitSet.has('forest') || mapSuitability.traitSet.has('open')) {
+      situations.add('supportByFire');
+    }
+    if (Math.abs(matchupDelta) >= 10) situations.add('disruption');
+
+    return {
+      gamemode: getStrategyGuideGamemode(layer),
+      sizeTier: mapSuitability.sizeTier,
+      traits: new Set(Array.from(mapSuitability.traitSet)),
+      situations,
+    };
+  }
+
+  function formatStrategyGuideReason(reason) {
+    const labels = {
+      small: 'Small map',
+      medium: 'Medium map',
+      large: 'Large map',
+      urban: 'Urban',
+      forest: 'Forest',
+      open: 'Open ground',
+      desert: 'Desert',
+      wetland: 'Wetland',
+      water: 'Water crossing',
+      mountain: 'Mountain',
+      snow: 'Snow',
+      laneUncertainty: 'Lane uncertainty',
+      mobilityReset: 'Long reset risk',
+      spawnNetwork: 'Spawn network',
+      compoundAssault: 'Compound assault',
+      supportByFire: 'Support-by-fire',
+      disruption: 'Disruption window',
+      RAAS: 'RAAS',
+      AAS: 'AAS',
+      INVASION: 'Invasion',
+      TC: 'TC',
+      INSURGENCY: 'Insurgency'
+    };
+    return labels[reason] || reason;
+  }
+
+  function getStrategyGuideMatches(layer, mapSuitability, teamFits) {
+    const context = buildStrategyGuideContext(layer, mapSuitability, teamFits);
+    return STRATEGY_GUIDES.map((guide) => {
+      let score = 0;
+      const reasons = [];
+
+      if ((guide.sizeTiers || []).includes(context.sizeTier)) {
+        score += 2;
+        reasons.push(context.sizeTier);
+      }
+
+      if ((guide.gamemodes || []).includes(context.gamemode)) {
+        score += 1;
+        reasons.push(context.gamemode);
+      }
+
+      for (const trait of (guide.traits || [])) {
+        if (context.traits.has(trait)) {
+          score += 2;
+          reasons.push(trait);
+        }
+      }
+
+      for (const situation of (guide.situations || [])) {
+        if (context.situations.has(situation)) {
+          score += 3;
+          reasons.push(situation);
+        }
+      }
+
+      return {
+        guide,
+        score,
+        reasons: Array.from(new Set(reasons)).slice(0, 4)
+      };
+    })
+      .filter((match) => match.score > 0)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 3);
+  }
+
+  function buildStrategyGuideSection(layer, mapSuitability, teamFits) {
+    const matches = getStrategyGuideMatches(layer, mapSuitability, teamFits);
+    if (!matches.length) return '';
+
+    return `<section class="strategy-section">
+      <div class="strategy-section-title">Guide Signals</div>
+      <div class="strategy-guide-grid">${matches.map(({ guide, reasons }) => `<article class="strategy-guide-card">
+        <div class="strategy-guide-header">
+          <div>
+            <div class="strategy-guide-title">${escapeHtml(guide.title)}</div>
+            <div class="strategy-guide-source">${escapeHtml(guide.channel)}</div>
+          </div>
+          <a class="strategy-guide-link" href="${guide.url}" target="_blank" rel="noreferrer">Source</a>
+        </div>
+        <ul class="strategy-list strategy-guide-list">${guide.heuristics.slice(0, 2).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+        <div class="strategy-chip-row">${reasons.map((reason) => `<span class="strategy-chip strategy-chip-guide">${escapeHtml(formatStrategyGuideReason(reason))}</span>`).join('')}</div>
+      </article>`).join('')}</div>
+    </section>`;
+  }
+
+  function buildStrategyLiveObjectiveSection(layer) {
+    const liveState = getLiveObjectiveState(layer);
+    if (!liveState) return '';
+    return `<section class="strategy-section">
+      <div class="strategy-section-title">Live Match</div>
+      <div class="strategy-card">${buildLiveObjectiveSummaryHtml(liveState)}</div>
+    </section>`;
+  }
+
+  function buildStrategyDrawerHtml(layer) {
+    const tc = layer.teamConfigs || {};
+    const mapSuitability = buildMapSuitability(layer);
+    const team1Option = getSelectedTeamOption(layer, 'team1');
+    const team2Option = getSelectedTeamOption(layer, 'team2');
+    const team1Config = tc.team1 || {};
+    const team2Config = tc.team2 || {};
+    const teamFits = {
+      team1: evaluateTeamMapFit(layer, 'team1', team1Option, mapSuitability),
+      team2: evaluateTeamMapFit(layer, 'team2', team2Option, mapSuitability),
+    };
+    const liveObjectiveSection = buildStrategyLiveObjectiveSection(layer);
+    const priorities = buildStrategyPriorities(layer, mapSuitability, teamFits);
+    const guideSection = buildStrategyGuideSection(layer, mapSuitability, teamFits);
+    const matchupDelta = teamFits.team1.score - teamFits.team2.score;
+    const matchupLine = Math.abs(matchupDelta) < 6
+      ? 'Matchup is even on paper — execution decides.'
+      : matchupDelta > 0
+        ? 'Team 1 fits this map better on paper.'
+        : 'Team 2 fits this map better on paper.';
+
+    const buildTeamCard = (label, option, config, fit) => {
+      const factionId = option?.factionID || extractFactionId(config.defaultFactionUnit);
+      const factionName = FACTION_NAMES[factionId] || factionId || label;
+      const detailPoints = fit.strengths.length ? fit.strengths : fit.risks;
+      const detailTone = fit.strengths.length ? 'positive' : 'warning';
+      return `<div class="strategy-team-card">
+        <div class="strategy-team-header">
+          <div class="strategy-team-name">${escapeHtml(label)} · ${escapeHtml(factionName)}</div>
+          <span class="fit-badge ${fit.tone}">${fit.label}</span>
+        </div>
+        <div class="strategy-team-subtitle">Score ${fit.score}/100 · ${escapeHtml(option?.defaultUnit || config.defaultFactionUnit || 'No default unit listed')}</div>
+        ${detailPoints.length ? `<div class="team-fit-points">${detailPoints.map((point) => `<div class="team-fit-point ${detailTone}">${escapeHtml(point)}</div>`).join('')}</div>` : ''}
+      </div>`;
+    };
+
+    const watchoutsHtml = mapSuitability.watchouts.length
+      ? `<ul class="strategy-watchouts">${mapSuitability.watchouts.map((w) => `<li>${escapeHtml(w)}</li>`).join('')}</ul>`
+      : '';
+
+    return `
+      ${liveObjectiveSection}
+      <section class="strategy-section">
+        <div class="strategy-section-title">Situation</div>
+        <div class="strategy-card">
+          <div class="strategy-context-grid">
+            <div class="strategy-kv">
+              <span class="strategy-kv-label">Layer</span>
+              <span class="strategy-kv-value">${escapeHtml(layer.Name)}</span>
+            </div>
+            <div class="strategy-kv">
+              <span class="strategy-kv-label">Lane State</span>
+              <span class="strategy-kv-value">${escapeHtml(getStrategyLaneSummary(layer))}</span>
+            </div>
+          </div>
+          <div class="strategy-chip-row" style="margin-top:10px;">${mapSuitability.traits.map((trait) => `<span class="strategy-chip">${escapeHtml(trait)}</span>`).join('')}</div>
+          <div class="strategy-lead" style="margin-top:10px;">${escapeHtml(matchupLine)}</div>
+          ${watchoutsHtml}
+        </div>
+      </section>
+      <section class="strategy-section">
+        <div class="strategy-section-title">Opening Priorities</div>
+        <div class="strategy-card">
+          <ul class="strategy-list">${priorities.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+        </div>
+      </section>
+      ${guideSection}
+      <section class="strategy-section">
+        <div class="strategy-section-title">Team Read</div>
+        <div class="strategy-team-grid">
+          ${buildTeamCard('Team 1', team1Option, team1Config, teamFits.team1)}
+          ${buildTeamCard('Team 2', team2Option, team2Config, teamFits.team2)}
+        </div>
+      </section>`;
+  }
+
+  function setStrategyDrawerOpen(isOpen) {
+    strategyDrawerOpen = !!isOpen;
+    const drawer = document.getElementById('strategy-drawer');
+    const scrim = document.getElementById('strategy-drawer-scrim');
+    const toggle = document.getElementById('strategy-drawer-toggle');
+    if (drawer) {
+      drawer.classList.toggle('open', strategyDrawerOpen);
+      drawer.setAttribute('aria-hidden', strategyDrawerOpen ? 'false' : 'true');
+    }
+    if (scrim) scrim.classList.toggle('hidden', !strategyDrawerOpen);
+    if (toggle) toggle.setAttribute('aria-expanded', strategyDrawerOpen ? 'true' : 'false');
+  }
+
+  function renderStrategyDrawer(layer) {
+    const content = document.getElementById('strategy-drawer-content');
+    if (!content || !layer) return;
+    content.innerHTML = buildStrategyDrawerHtml(layer);
+  }
+
+  function buildMapInfoSection(layer) {
     const fit = buildMapSuitability(layer);
-    let html = `<div class="detail-section">
-      <h4>Map Fit</h4>
-      <div class="map-fit-meta">${fit.diagonalKm ? `${fit.diagonalKm.toFixed(1)} km playable diagonal` : 'Map footprint unavailable'}</div>
-      <div class="map-trait-list">${fit.traits.map((trait) => `<span class="map-trait-chip">${escapeHtml(trait)}</span>`).join('')}</div>
-      <div class="map-fit-grid">
-        <div class="map-fit-card">
-          <div class="map-fit-card-title">Offense Favors</div>
-          <div class="map-fit-chip-row">${fit.offense.map((value) => `<span class="map-fit-chip offense">${escapeHtml(value)}</span>`).join('')}</div>
-        </div>
-        <div class="map-fit-card">
-          <div class="map-fit-card-title">Defense Favors</div>
-          <div class="map-fit-chip-row">${fit.defense.map((value) => `<span class="map-fit-chip defense">${escapeHtml(value)}</span>`).join('')}</div>
-        </div>
-      </div>`;
-    if (fit.watchouts.length) {
-      html += `<div class="map-fit-warning-list">${fit.watchouts.map((warning) => `<div class="map-fit-warning">${escapeHtml(warning)}</div>`).join('')}</div>`;
-    }
-    if (fit.waterHazard) {
-      const wh = fit.waterHazard;
-      const severityLabel = wh.severity === 'high' ? 'High' : wh.severity === 'moderate' ? 'Moderate' : 'Low';
-      const passableLabel = wh.infantryPassable === 'yes' ? 'Yes' : wh.infantryPassable === 'partial' ? 'Partial' : 'No';
-      html += `<div class="water-hazard-section">
-        <div class="water-hazard-header">
-          <span class="water-hazard-icon">🌊</span>
-          <span class="water-hazard-title">Water Hazards</span>
-          <span class="water-severity-badge severity-${wh.severity}">${severityLabel}</span>
-        </div>
-        <div class="water-hazard-meta">Infantry passable: <strong>${passableLabel}</strong></div>
-        <ul class="water-hazard-list">${wh.hazards.map((h) => `<li>${escapeHtml(h)}</li>`).join('')}</ul>
-      </div>`;
-    }
-    html += '</div>';
-    return { html, fit };
+    const gm = GAMEMODE_LABELS[layer.gamemode] || layer.gamemode;
+    const metaParts = [];
+    if (layer.mapSize) metaParts.push(escapeHtml(layer.mapSize));
+    if (gm) metaParts.push(escapeHtml(gm));
+    if (fit.diagonalKm) metaParts.push(`${fit.diagonalKm.toFixed(1)} km diagonal`);
+    if (layer.commanderDisabled) metaParts.push('Commander off');
+
+    return `<div class="detail-section">
+      <h4>Map</h4>
+      <div class="map-fit-meta">${metaParts.join(' · ')}</div>
+    </div>`;
   }
 
   // ---- Layer Details ----
@@ -2328,31 +3209,17 @@
 
     let html = '';
 
-    // Layer info
-    html += `<div class="detail-section">
-      <h4>Layer Info</h4>
-      <div style="font-size:12px;color:var(--text-secondary);line-height:1.8">
-        <div><b>Gamemode:</b> ${GAMEMODE_LABELS[layer.gamemode] || layer.gamemode}</div>
-        <div><b>Map Size:</b> ${layer.mapSize || 'N/A'}</div>
-        <div><b>Helicopters:</b> ${layer.helicoptersAvailable ? 'Yes' : 'No'}</div>
-        <div><b>Tanks:</b> ${layer.tanksAvailable ? 'Yes' : 'No'}</div>
-        <div><b>Boats:</b> ${layer.boatsAvailable ? 'Yes' : 'No'}</div>
-        <div><b>Commander:</b> ${layer.commanderDisabled ? 'Disabled' : 'Enabled'}</div>
-      </div>
-    </div>`;
-
-    const mapSuitability = buildMapSuitabilitySection(layer);
-    html += mapSuitability.html;
+    html += buildMapInfoSection(layer);
 
     // Team 1 info
     const t1 = tc.team1 || {};
     const team1Option = getSelectedTeamOption(layer, 'team1');
-    html += buildTeamDetail('Team 1', 'team1', team1Option, t1, layer, mapSuitability.fit);
+    html += buildTeamDetail('Team 1', team1Option, t1, layer);
 
     // Team 2 info
     const t2 = tc.team2 || {};
     const team2Option = getSelectedTeamOption(layer, 'team2');
-    html += buildTeamDetail('Team 2', 'team2', team2Option, t2, layer, mapSuitability.fit);
+    html += buildTeamDetail('Team 2', team2Option, t2, layer);
 
     // Deployables
     const deployables = assets.deployables || [];
@@ -2429,35 +3296,42 @@
       });
   }
 
-  function buildTeamDetail(label, teamKey, selectedOption, teamConfig, layer, mapSuitability) {
+  function getUnitVehicleList(layer, selectedOption, teamConfig) {
+    const byUnit = layer.vehiclesByUnit || {};
+    const unitKey = selectedOption?.defaultUnit || teamConfig?.defaultFactionUnit || '';
+    return byUnit[unitKey] || [];
+  }
+
+  function formatRespawnTime(min) {
+    if (!Number.isFinite(min) || min <= 0) return '';
+    if (min >= 1) return `${Number.isInteger(min) ? min : min.toFixed(1)} min`;
+    return `${Math.round(min * 60)}s`;
+  }
+
+  function buildTeamDetail(label, selectedOption, teamConfig, layer) {
     const factionId = selectedOption?.factionID || extractFactionId(teamConfig.defaultFactionUnit);
-    const vehicleCapabilities = getTeamVehicleCapabilities(layer, teamKey);
-    const teamFit = evaluateTeamMapFit(layer, teamKey, selectedOption, mapSuitability);
-    let html = `<div class="detail-section"><h4>${label} – ${FACTION_NAMES[factionId] || factionId}</h4>`;
-    html += `<div style="font-size:12px;color:var(--text-secondary);line-height:1.6">`;
-    html += `<div><b>Tickets:</b> ${teamConfig.tickets || '?'}</div>`;
-    html += `<div><b>Default Unit:</b> ${selectedOption?.defaultUnit || teamConfig.defaultFactionUnit || 'N/A'}</div>`;
-    html += `<div class="team-fit-summary">
-      <div class="team-fit-header">
-        <span><b>Layer Fit:</b></span>
-        <span class="fit-badge ${teamFit.tone}">${teamFit.label}</span>
-      </div>
-      ${teamFit.strengths.length ? `<div class="team-fit-points">${teamFit.strengths.map((point) => `<div class="team-fit-point positive">${escapeHtml(point)}</div>`).join('')}</div>` : ''}
-      ${teamFit.risks.length ? `<div class="team-fit-points">${teamFit.risks.map((point) => `<div class="team-fit-point warning">${escapeHtml(point)}</div>`).join('')}</div>` : ''}
-    </div>`;
-    if (selectedOption?.types?.length) {
-      html += `<div style="margin-top:6px"><b>Unit Types:</b></div>`;
-      html += `<div class="unit-type-list">${selectedOption.types.map((type) => `<span class="unit-type-chip">${escapeHtml(formatUnitType(type.unitType))}</span>`).join('')}</div>`;
+    const vehicles = getUnitVehicleList(layer, selectedOption, teamConfig);
+    const tickets = teamConfig.tickets || '?';
+
+    let html = `<div class="detail-section"><h4>${label} – ${FACTION_NAMES[factionId] || factionId}</h4>
+      <div class="team-detail-header">
+        <span class="team-detail-tickets">${tickets} tickets</span>
+      </div>`;
+    if (vehicles.length) {
+      const totalCount = vehicles.reduce((sum, v) => sum + (v.count || 0), 0);
+      html += `<div class="vehicle-capability-label">Vehicles (${totalCount})</div>
+      <div class="vehicle-list">${vehicles.map((v) => {
+        const resp = formatRespawnTime(v.respawnMin);
+        const delay = Number.isFinite(v.initialDelayMin) && v.initialDelayMin > 0
+          ? ` <span class="veh-delay">· +${v.initialDelayMin}m start</span>` : '';
+        return `<div class="vehicle-item">
+          <span class="veh-count">${v.count}x</span>
+          <span class="veh-name">${escapeHtml(v.name)}</span>
+          ${resp ? `<span class="veh-respawn">${escapeHtml(resp)}</span>` : ''}${delay}
+        </div>`;
+      }).join('')}</div>`;
     }
-    if (vehicleCapabilities.length) {
-      html += `<div style="margin-top:8px"><b>Vehicle Capabilities:</b></div>`;
-      html += `<div class="vehicle-capability-list">${vehicleCapabilities.map(([name, count]) => `
-        <span class="vehicle-capability-chip">
-          <span class="vehicle-capability-name">${escapeHtml(name)}</span>
-          <span class="vehicle-capability-count">${count}</span>
-        </span>`).join('')}</div>`;
-    }
-    html += '</div></div>';
+    html += '</div>';
     return html;
   }
 
@@ -2467,15 +3341,36 @@
     // Reset mortar tool state
     clearMortar();
     closeMapContextMenu();
+    setStrategyDrawerOpen(false);
 
     if (leafletMap) {
       leafletMap.remove();
       leafletMap = null;
     }
+    setLeftSidebarOpen(false);
     document.getElementById('map-view').classList.add('hidden');
     document.getElementById('map-grid').classList.remove('hidden');
     currentMapId = null;
     window.location.hash = '';
+  }
+
+  function setLeftSidebarOpen(open) {
+    leftSidebarOpen = !!open;
+    const mapViewBody = document.querySelector('.map-view-body');
+    const sidebar = document.getElementById('left-sidebar');
+    const toggle = document.getElementById('left-sidebar-toggle');
+    if (mapViewBody) {
+      mapViewBody.classList.toggle('sidebar-open', leftSidebarOpen);
+      mapViewBody.classList.toggle('sidebar-collapsed', !leftSidebarOpen);
+    }
+    if (sidebar) {
+      sidebar.classList.toggle('sidebar-open', leftSidebarOpen);
+      sidebar.classList.toggle('sidebar-collapsed', !leftSidebarOpen);
+    }
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', leftSidebarOpen ? 'true' : 'false');
+      toggle.textContent = leftSidebarOpen ? 'Hide Panel' : 'Layers';
+    }
   }
 
   // ---- Hash Routing ----
@@ -2565,7 +3460,112 @@
                 fr  * ((1 - fc) * h10 + fc * h11);
   }
 
-  function computeFiringSolution(mortar, target, hMortar, hTarget) {
+  function getActiveWeapon() {
+    return WEAPONS[activeWeaponId];
+  }
+
+  function getActiveShell() {
+    return getActiveWeapon().shells[activeShellIdx];
+  }
+
+  function getActiveShellDerived() {
+    return getActiveWeapon()._shellDerived[activeShellIdx];
+  }
+
+  function getWeaponVelocity(weapon, shellIdx, distanceM) {
+    const shell = weapon.shells[shellIdx];
+    const derived = weapon._shellDerived[shellIdx];
+    if (!derived || derived.decelerationDistance === 0) return shell.velocity;
+    if (distanceM <= derived.decelerationDistance) {
+      const discriminant = Math.sqrt((shell.velocity * shell.velocity) + (2 * weapon.deceleration * distanceM));
+      const t = (-shell.velocity + discriminant) / weapon.deceleration;
+      return shell.velocity - weapon.deceleration * t;
+    }
+    const finalVelocity = shell.velocity - weapon.deceleration * weapon.decelerationTime;
+    const distanceAfterDeceleration = distanceM - derived.decelerationDistance;
+    const timeAfterDeceleration = distanceAfterDeceleration / finalVelocity;
+    const totalTime = weapon.decelerationTime + timeAfterDeceleration;
+    return distanceM / totalTime;
+  }
+
+  function getWeaponMaxRangeM() {
+    return getActiveShellDerived().maxDistanceM;
+  }
+
+  function getTimeOfFlight(rad, velocity, gravity, heightDiff) {
+    if (!Number.isFinite(rad)) return NaN;
+    let t = velocity * Math.sin(rad) + Math.sqrt(
+      (velocity * velocity * Math.sin(rad) * Math.sin(rad)) + (2 * gravity * -heightDiff)
+    );
+    if (Number.isNaN(t)) {
+      t = velocity * Math.sin(rad) + Math.sqrt(velocity * velocity * Math.sin(rad) * Math.sin(rad));
+    }
+    return t / gravity;
+  }
+
+  function formatElevation(rad, unit) {
+    if (!Number.isFinite(rad)) return '';
+    if (unit === 'mil') return `${(rad * 3200 / Math.PI).toFixed(0)} mil`;
+    if (unit === 'deg') return `${(rad * 180 / Math.PI).toFixed(1)}°`;
+    const totalMinutes = Math.round((rad * 180 / Math.PI) * 60);
+    const sign = totalMinutes < 0 ? '-' : '';
+    const absMinutes = Math.abs(totalMinutes);
+    const degrees = Math.floor(absMinutes / 60);
+    const minutes = absMinutes % 60;
+    return `${sign}${degrees}°${minutes}'`;
+  }
+
+  function getDisplayBranch(sol) {
+    if (!sol || !sol.inRange || !sol.primary) return null;
+    if (sol.primary.valid) return sol.primary;
+    if (sol.primary === sol.high && sol.low && sol.low.valid && sol.high && sol.high.valid) {
+      return sol.low;
+    }
+    return null;
+  }
+
+  function getUnitLabel(unit) {
+    if (unit === 'mil') return 'Mils';
+    if (unit === 'degMin') return 'Deg/Min';
+    return 'Degrees';
+  }
+
+  function formatShellLabel(name, index) {
+    const fallback = name || `Shell ${index + 1}`;
+    return fallback
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/[-_.]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function updateMortarSummary() {
+    const el = document.getElementById('mortar-summary');
+    if (!el) return;
+    if (!mortarPosition) {
+      el.innerHTML = '';
+      el.classList.add('hidden');
+      return;
+    }
+    const weapon = getActiveWeapon();
+    const shell = getActiveShell();
+    const shellLabel = weapon.shells.length > 1 ? formatShellLabel(shell.name, activeShellIdx) : 'Default';
+    el.classList.remove('hidden');
+    el.innerHTML = [
+      ['Source', weapon.source || 'Unknown'],
+      ['Ammo', shellLabel],
+      ['Unit', getUnitLabel(weapon.unit)],
+      ['Range', `${Math.round(getWeaponMaxRangeM())}m max`],
+      ['Blast', `${shell.explosionRadius[1]}m`],
+    ].map(([label, value]) => `
+      <span class="mortar-chip">
+        <span class="mortar-chip-label">${label}</span>
+        <span class="mortar-chip-value">${value}</span>
+      </span>
+    `).join('');
+  }
+
+  function computeFiringSolution(weapon, shellIdx, mortar, target, hMortar, hTarget) {
     // UE units to meters
     const dxM = (target.ueX - mortar.ueX) / 100;
     const dyM = (target.ueY - mortar.ueY) / 100;
@@ -2574,30 +3574,56 @@
     let bearing = Math.atan2(dxM, dyM) * 180 / Math.PI;
     if (bearing < 0) bearing += 360;
 
-    const v = MORTAR.velocity;
-    const g = MORTAR.gravity;
-    // Mortar tube sits ~1m off the ground — apply heightOffset to the mortar side.
-    const hDiff = hTarget - (hMortar + (MORTAR.heightOffset || 0));
+    const shell = weapon.shells[shellIdx];
+    const v = getWeaponVelocity(weapon, shellIdx, dist);
+    const g = GRAVITY * weapon.gravityScale;
+    const hDiff = hTarget - (hMortar + (weapon.heightOffset || 0));
     const v2 = v * v;
     const v4 = v2 * v2;
     const inner = v4 - g * (g * dist * dist + 2 * hDiff * v2);
 
-    const result = { dist, bearing, hDiff, hMortar, hTarget, inRange: false };
+    const result = {
+      dist,
+      bearing,
+      hDiff,
+      hMortar,
+      hTarget,
+      unit: weapon.unit,
+      minDistanceM: shell.minDistance,
+      belowMin: dist < shell.minDistance,
+      inRange: false,
+      low: null,
+      high: null,
+      primary: null,
+    };
     if (inner < 0 || dist <= 0) return result;
 
     const P = Math.sqrt(inner);
-    const lowRad = Math.atan((v2 - P) / (g * dist));
-    const highRad = Math.atan((v2 + P) / (g * dist));
+    const angleOffsetRad = (weapon.angleOffset || 0) * Math.PI / 180;
+    const lowRad = Math.atan((v2 - P) / (g * dist)) - angleOffsetRad;
+    const highRad = Math.atan((v2 + P) / (g * dist)) - angleOffsetRad;
     const toDeg = (r) => r * 180 / Math.PI;
-    const toMil = (r) => r * 3200 / Math.PI; // NATO mil (6400 mils = 360deg)
+    const buildBranch = (rad) => {
+      const deg = toDeg(rad);
+      const tof = getTimeOfFlight(rad, v, g, hDiff);
+      const valid = Number.isFinite(rad) &&
+        deg >= weapon.minElevation[0] &&
+        deg <= weapon.minElevation[1] &&
+        Number.isFinite(tof) &&
+        tof <= weapon.projectileLifespan;
+      return {
+        valid,
+        rad,
+        deg,
+        mil: rad * 3200 / Math.PI,
+        tof,
+      };
+    };
 
-    const lowDeg = toDeg(lowRad);
-    const highDeg = toDeg(highRad);
-    const inBand = (d) => d >= MORTAR.minElevationDeg && d <= MORTAR.maxElevationDeg;
-
-    result.inRange = true;
-    result.low = inBand(lowDeg) ? { deg: lowDeg, mil: toMil(lowRad) } : null;
-    result.high = inBand(highDeg) ? { deg: highDeg, mil: toMil(highRad) } : null;
+    result.low = buildBranch(lowRad);
+    result.high = buildBranch(highRad);
+    result.primary = weapon.angleType === 'low' ? result.low : result.high;
+    result.inRange = !!((result.low && result.low.valid) || (result.high && result.high.valid));
     return result;
   }
 
@@ -2717,19 +3743,14 @@
     }
   }
 
-  // Flat-ground max range for the current mortar, in meters.
-  // v^2/g is the theoretical max at 45° elevation on flat ground.
-  function mortarMaxRangeFlatM() {
-    return (MORTAR.velocity * MORTAR.velocity) / MORTAR.gravity;
-  }
-
   // Gold reticle centered exactly on the weapon position. Anchor is the
   // geometric centre so firing solutions, range circle and heightmap sample
   // all reference the same point the user sees.
   function mortarIcon() {
+    const weapon = getActiveWeapon();
     return L.divIcon({
       className: '',
-      html: `<div class="mortar-marker" title="${MORTAR.name}">
+      html: `<div class="mortar-marker" title="${weapon.displayName}">
         <svg viewBox="0 0 26 26" width="26" height="26">
           <circle class="reticle-ring" cx="13" cy="13" r="10"/>
           <line class="reticle-tick" x1="13" y1="1" x2="13" y2="6"/>
@@ -2759,25 +3780,69 @@
   }
 
   function targetTooltipHtml(sol) {
-    // Three-line tooltip: distance, bearing, firing elevation in mils.
     const dist = `${Math.round(sol.dist)}m`;
-    const bear = `${sol.bearing.toFixed(0)}&deg;`;
-    let elev;
-    if (!sol.inRange) elev = '<span class="mortar-oor-tt">OOR</span>';
-    else if (sol.high) elev = `${sol.high.mil.toFixed(0)} mil`;
-    else if (sol.low) elev = `${sol.low.mil.toFixed(0)} mil`;
-    else elev = '<span class="mortar-oor-tt">OOR</span>';
+    const bear = `${sol.bearing.toFixed(0)}°`;
+    const branch = getDisplayBranch(sol);
+    let elev = '<span class="mortar-oor-tt">OOR</span>';
+    if (sol.belowMin) elev = '<span class="mortar-oor-tt">MIN</span>';
+    else if (branch) elev = formatElevation(branch.rad, sol.unit);
     return `${dist}<br>${bear}<br>${elev}`;
+  }
+
+  function rebuildWeaponSelect() {
+    const select = document.getElementById('weapon-select');
+    if (!select) return;
+    const groups = new Map();
+    select.innerHTML = '';
+    for (const weaponId of WEAPON_IDS) {
+      const weapon = WEAPONS[weaponId];
+      const groupLabel = weapon.source || (weapon.category === 'base' ? 'Vanilla Squad' : 'Game Mods');
+      if (!groups.has(groupLabel)) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = groupLabel;
+        groups.set(groupLabel, optgroup);
+      }
+      const option = document.createElement('option');
+      option.value = weaponId;
+      option.textContent = weapon.displayName;
+      groups.get(groupLabel).appendChild(option);
+    }
+    for (const optgroup of groups.values()) {
+      select.appendChild(optgroup);
+    }
+    select.value = activeWeaponId;
+  }
+
+  function rebuildShellSelect() {
+    const row = document.querySelector('.mortar-shell-row');
+    const select = document.getElementById('mortar-shell-select');
+    const weapon = getActiveWeapon();
+    if (!row || !select || !weapon) return;
+    if (activeShellIdx >= weapon.shells.length) activeShellIdx = 0;
+    select.innerHTML = '';
+    if (weapon.shells.length <= 1) {
+      row.classList.add('hidden');
+      return;
+    }
+    row.classList.remove('hidden');
+    weapon.shells.forEach((shell, idx) => {
+      const option = document.createElement('option');
+      option.value = String(idx);
+      option.textContent = formatShellLabel(shell.name, idx);
+      select.appendChild(option);
+    });
+    select.value = String(activeShellIdx);
   }
 
   // Compute solutions for every target from the current mortar + heightmap,
   // returning a parallel array aligned with targetPositions.
   function computeAllSolutions(hm, layer) {
     if (!mortarPosition || !hm) return [];
+    const weapon = getActiveWeapon();
     const hMortar = sampleHeight(hm, layer, mortarPosition.ueX, mortarPosition.ueY);
     return targetPositions.map((t) => {
       const hTarget = sampleHeight(hm, layer, t.ueX, t.ueY);
-      return computeFiringSolution(mortarPosition, t, hMortar, hTarget);
+      return computeFiringSolution(weapon, activeShellIdx, mortarPosition, t, hMortar, hTarget);
     });
   }
 
@@ -2786,8 +3851,18 @@
   // re-render so drag state survives.
   function refreshMortarVisuals(hm, layer) {
     if (!mortarLayerGroup || !mortarPosition) return;
+    const shell = getActiveShell();
+    updateMortarSummary();
     if (mortarRefs.rangeCircle) {
       mortarRefs.rangeCircle.setLatLng([mortarPosition.ueY, mortarPosition.ueX]);
+      mortarRefs.rangeCircle.setRadius(getWeaponMaxRangeM() * 100);
+    }
+    if (mortarRefs.marker) {
+      const markerEl = mortarRefs.marker.getElement();
+      if (markerEl) {
+        const icon = markerEl.querySelector('.mortar-marker');
+        if (icon) icon.setAttribute('title', getActiveWeapon().displayName);
+      }
     }
     const sols = computeAllSolutions(hm, layer);
     for (let i = 0; i < mortarRefs.targets.length; i++) {
@@ -2803,6 +3878,7 @@
       }
       if (ref.damageCircle) {
         ref.damageCircle.setLatLng([t.ueY, t.ueX]);
+        ref.damageCircle.setRadius(shell.explosionRadius[1] * 100);
       }
       if (ref.marker) {
         ref.marker.setTooltipContent(targetTooltipHtml(sol));
@@ -2824,14 +3900,19 @@
     mortarRefs.targets = [];
 
     if (!mortarPosition) {
+      updateMortarSummary();
       updateMortarResultPanel([]);
       return;
     }
 
+    rebuildWeaponSelect();
+    rebuildShellSelect();
+    updateMortarSummary();
+
     const m = mortarPosition;
 
-    // Max-range circle (flat-ground, meters -> UE units x100).
-    const maxRangeUE = mortarMaxRangeFlatM() * 100;
+    // Max-range circle (meters -> UE units x100).
+    const maxRangeUE = getWeaponMaxRangeM() * 100;
     mortarRefs.rangeCircle = L.circle([m.ueY, m.ueX], {
       radius: maxRangeUE,
       color: '#6fc3df',
@@ -2879,7 +3960,7 @@
 
     // Targets: each independent, each draggable, each with own line + tooltip
     // + damage-radius circle.
-    const damageRadiusUE = MORTAR.damageRadiusM * 100;
+    const damageRadiusUE = getActiveShell().explosionRadius[1] * 100;
     const sols = computeAllSolutions(hm, layer);
     for (let i = 0; i < targetPositions.length; i++) {
       const t = targetPositions[i];
@@ -2933,26 +4014,26 @@
     const panel = document.getElementById('mortar-panel');
     const el = document.getElementById('mortar-result');
     if (!panel || !el) return;
-    if (!sols || sols.length === 0) {
+    if (!mortarPosition) {
       panel.classList.add('hidden');
+      el.innerHTML = '';
       return;
     }
     panel.classList.remove('hidden');
+    if (!sols || sols.length === 0) {
+      el.innerHTML = '<div class="mortar-result-head"><span>ID</span><span>Range</span><span>Bearing</span><span>Elevation</span></div><div class="mortar-empty-state">Add a target to generate a firing solution.</div>';
+      return;
+    }
 
+    const head = '<div class="mortar-result-head"><span>ID</span><span>Range</span><span>Bearing</span><span>Elevation</span></div>';
     const rows = sols.map((sol, i) => {
       const num = i + 1;
       const distStr = `${sol.dist.toFixed(0)}m`;
-      const bearStr = `${sol.bearing.toFixed(0)}&deg;`;
-      let elevStr;
-      if (!sol.inRange) {
-        elevStr = '<span class="mortar-oor">OOR</span>';
-      } else if (sol.high) {
-        elevStr = `<strong>${sol.high.mil.toFixed(0)}</strong> mil`;
-      } else if (sol.low) {
-        elevStr = `<strong>${sol.low.mil.toFixed(0)}</strong> mil`;
-      } else {
-        elevStr = '<span class="mortar-oor">OOR</span>';
-      }
+      const bearStr = `${sol.bearing.toFixed(0)}°`;
+      const branch = getDisplayBranch(sol);
+      let elevStr = '<span class="mortar-oor">OOR</span>';
+      if (sol.belowMin) elevStr = '<span class="mortar-oor">MIN</span>';
+      else if (branch) elevStr = `<strong>${formatElevation(branch.rad, sol.unit)}</strong>`;
       return `<div class="mortar-target-row">
         <span class="mortar-target-num">T${num}</span>
         <span class="mortar-target-dist">${distStr}</span>
@@ -2961,7 +4042,7 @@
       </div>`;
     }).join('');
 
-    el.innerHTML = rows;
+    el.innerHTML = head + rows;
   }
 
   function currentLayer() {
@@ -3115,9 +4196,33 @@
       }
     });
 
-    // Mortar tool — no tool button. Double-click places, panel close button clears.
+    // Indirect-fire tool — no tool button. Double-click places, panel close button clears.
     const mortarCloseBtn = document.getElementById('mortar-close-btn');
     if (mortarCloseBtn) mortarCloseBtn.addEventListener('click', clearMortar);
+    const weaponSelect = document.getElementById('weapon-select');
+    if (weaponSelect) {
+      weaponSelect.addEventListener('change', async (e) => {
+        activeWeaponId = e.target.value;
+        activeShellIdx = 0;
+        rebuildShellSelect();
+        const layer = currentLayer();
+        if (!layer || !mortarPosition) return;
+        const hm = await loadHeightmap(layer);
+        if (!hm) return;
+        refreshMortarVisuals(hm, layer);
+      });
+    }
+    const shellSelect = document.getElementById('mortar-shell-select');
+    if (shellSelect) {
+      shellSelect.addEventListener('change', async (e) => {
+        activeShellIdx = parseInt(e.target.value, 10) || 0;
+        const layer = currentLayer();
+        if (!layer || !mortarPosition) return;
+        const hm = await loadHeightmap(layer);
+        if (!hm) return;
+        refreshMortarVisuals(hm, layer);
+      });
+    }
 
     // Right-click context menu: delegate item clicks, close on outside click.
     const ctxMenu = document.getElementById('map-context-menu');
@@ -3143,6 +4248,10 @@
         const menu = document.getElementById('map-context-menu');
         if (menu && !menu.classList.contains('hidden')) {
           closeMapContextMenu();
+        } else if (strategyDrawerOpen) {
+          setStrategyDrawerOpen(false);
+        } else if (leftSidebarOpen) {
+          setLeftSidebarOpen(false);
         } else if (mortarPosition || targetPositions.length > 0) {
           clearMortar();
         } else if (currentMapId) {
@@ -3150,6 +4259,22 @@
         }
       }
     });
+
+    const strategyToggle = document.getElementById('strategy-drawer-toggle');
+    if (strategyToggle) {
+      strategyToggle.addEventListener('click', () => {
+        if (currentLayer()) renderStrategyDrawer(currentLayer());
+        setStrategyDrawerOpen(!strategyDrawerOpen);
+      });
+    }
+    const sidebarToggle = document.getElementById('left-sidebar-toggle');
+    if (sidebarToggle) {
+      sidebarToggle.addEventListener('click', () => setLeftSidebarOpen(!leftSidebarOpen));
+    }
+    const strategyClose = document.getElementById('strategy-drawer-close');
+    if (strategyClose) strategyClose.addEventListener('click', () => setStrategyDrawerOpen(false));
+    const strategyScrim = document.getElementById('strategy-drawer-scrim');
+    if (strategyScrim) strategyScrim.addEventListener('click', () => setStrategyDrawerOpen(false));
 
     // Sidebar tabs
     document.querySelectorAll('.sidebar-tab').forEach((tab) => {

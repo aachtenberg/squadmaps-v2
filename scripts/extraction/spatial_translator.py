@@ -46,6 +46,66 @@ from typing import Any, Optional
 _UE_DISAMBIG_SUFFIX = re.compile(r'_\d+$')
 
 
+_CORRUPTED_NAME_REPAIRS: dict[str, str] = {
+    # Harju — Squad's SDK FText SourceString for these Finnish placenames was
+    # written with a non-UTF-8 codepage and the diacritics collapsed to '?'.
+    # CUE4Parse just reads back the corrupted string, so we patch at translate.
+    'N?kym?': 'Näkymä',
+    'J?rvikyl?': 'Järvikylä',
+    'M?ntyharju': 'Mäntyharju',
+    'K?py': 'Käpy',
+    'Mets?kyl?': 'Metsäkylä',
+    'Mets?kyl? Apartments': 'Metsäkylä Apartments',
+    'Mets?kyl? North': 'Metsäkylä North',
+    'Mets?kyl? South': 'Metsäkylä South',
+    'Mets?kyl?North': 'Metsäkylä North',
+    'Mets?kyl?South': 'Metsäkylä South',
+}
+
+_PREFIXED_NAME_RE = re.compile(r'^([A-Z]?\d{1,2}-)(.+)$')
+
+
+def _repair_name(value: Optional[str]) -> Optional[str]:
+    """Repair known corrupted names (Squad-shipped `?` placeholders).
+
+    Handles both bare names ("J?rvikyl?") and lane/order-prefixed variants
+    ("B3-J?rvikyl?", "02-J?rvikyl?") by peeling the prefix and looking up
+    the tail in the repair table.
+    """
+    if not value or '?' not in value:
+        return value
+    if value in _CORRUPTED_NAME_REPAIRS:
+        return _CORRUPTED_NAME_REPAIRS[value]
+    m = _PREFIXED_NAME_RE.match(value)
+    if m and m.group(2) in _CORRUPTED_NAME_REPAIRS:
+        return m.group(1) + _CORRUPTED_NAME_REPAIRS[m.group(2)]
+    return value
+
+
+_NAME_KEYS = {'name', 'flagName', 'objectName', 'objectDisplayName',
+              'displayName', 'Name', 'nodeA', 'nodeB'}
+_NAME_ARRAY_KEYS = {'pointsOrder'}
+
+
+def _repair_names_in_place(obj: Any) -> None:
+    """Walk a parsed CUE4Parse spatial dict and repair corrupted name strings.
+
+    Only touches keys that carry human-readable labels or node references so
+    we don't accidentally rewrite asset paths.
+    """
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in _NAME_KEYS and isinstance(v, str):
+                obj[k] = _repair_name(v)
+            elif k in _NAME_ARRAY_KEYS and isinstance(v, list):
+                obj[k] = [_repair_name(s) if isinstance(s, str) else s for s in v]
+            else:
+                _repair_names_in_place(v)
+    elif isinstance(obj, list):
+        for item in obj:
+            _repair_names_in_place(item)
+
+
 def _strip_ue_suffix(name: str) -> str:
     """Strip UE's auto-generated _N suffix from an actor name."""
     return _UE_DISAMBIG_SUFFIX.sub('', name or '')
@@ -471,6 +531,7 @@ def translate(spatial: dict, gamemode: str) -> dict[str, Any]:
     layer fragments. Returns a dict with capturePoints, objectives,
     mapAssets, and assets keys ready to be merged into a layer.
     """
+    _repair_names_in_place(spatial)
     return {
         'capturePoints': _build_capture_points(spatial, gamemode),
         'objectives': _build_objectives(spatial),

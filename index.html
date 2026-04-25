@@ -8,7 +8,7 @@
   <link rel="icon" href="squadmaps-32.png" type="image/png" sizes="32x32">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app.css?v=44">
+  <link rel="stylesheet" href="app.css?v=49">
 </head>
 <body>
   <!-- Header -->
@@ -46,6 +46,8 @@
           <h2 id="layer-name"></h2>
           <div class="layer-meta" id="layer-meta"></div>
         </div>
+        <button id="left-sidebar-toggle" class="sidebar-toggle" aria-expanded="false" aria-controls="left-sidebar">Layers</button>
+        <button id="strategy-drawer-toggle" class="strategy-drawer-toggle" aria-expanded="false" aria-controls="strategy-drawer">Strategy</button>
       </div>
 
       <div class="map-view-body">
@@ -66,6 +68,17 @@
         <!-- Map container -->
         <div id="map-container" class="map-container">
           <div id="leaflet-map" class="leaflet-map"></div>
+          <div id="strategy-drawer-scrim" class="strategy-drawer-scrim hidden"></div>
+          <aside id="strategy-drawer" class="strategy-drawer" aria-hidden="true">
+            <div class="strategy-drawer-header">
+              <div class="strategy-drawer-titleblock">
+                <div class="strategy-drawer-kicker">Strategy</div>
+                <div class="strategy-drawer-title">Layer Brief</div>
+              </div>
+              <button id="strategy-drawer-close" class="strategy-drawer-close" title="Close strategy panel">&times;</button>
+            </div>
+            <div id="strategy-drawer-content" class="strategy-drawer-content"></div>
+          </aside>
           <!-- Top info bar -->
           <div id="top-panel" class="top-panel">
             <div class="team-panel team1-panel" id="team1-panel"></div>
@@ -82,7 +95,7 @@
               </span>Place HAB
             </button>
             <button class="mcm-item" data-action="mortar-place" role="menuitem">
-              <span class="mcm-icon">&#9876;</span>Place Mortar
+              <span class="mcm-icon">&#9876;</span>Place Weapon
             </button>
             <button class="mcm-item" data-action="mortar-target" role="menuitem">
               <span class="mcm-icon">&#8853;</span>Add Target
@@ -92,16 +105,30 @@
               <span class="mcm-icon">&times;</span>Clear HABs
             </button>
             <button class="mcm-item mcm-item-danger" data-action="clear-mortar" role="menuitem">
-              <span class="mcm-icon">&times;</span>Clear Mortar
+              <span class="mcm-icon">&times;</span>Clear Weapon
             </button>
           </div>
 
           <!-- Mortar firing solution — double-click the map to place -->
           <div id="mortar-panel" class="mortar-panel hidden">
             <div class="mortar-panel-header">
-              <span>Standard Mortar</span>
+              <div class="mortar-panel-titleblock">
+                <div class="mortar-panel-kicker">Indirect Fire</div>
+                <div class="mortar-panel-title">Fire Control</div>
+              </div>
               <button id="mortar-close-btn" class="mortar-close-btn" title="Clear (Esc)">&times;</button>
             </div>
+            <div class="mortar-panel-controls">
+              <label class="mortar-control-group" for="weapon-select">
+                <span class="mortar-control-label">Weapon</span>
+                <select id="weapon-select" class="weapon-select"></select>
+              </label>
+              <label class="mortar-control-group mortar-shell-row hidden" for="mortar-shell-select">
+                <span class="mortar-control-label">Ammo</span>
+                <select id="mortar-shell-select" class="weapon-select"></select>
+              </label>
+            </div>
+            <div id="mortar-summary" class="mortar-summary"></div>
             <div id="mortar-result" class="mortar-result"></div>
           </div>
         </div>
@@ -110,9 +137,10 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="data/v10_data.js?v=2"></script>
+  <script src="data/v10_data.js?v=5"></script>
   <script src="data/translations.js"></script>
+  <script src="data/strategy_guides.js"></script>
   <script src="data/water_hazards.js"></script>
-  <script src="app.js?v=43"></script>
+  <script src="app.js?v=57"></script>
 </body>
 </html>

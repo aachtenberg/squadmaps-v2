@@ -1,0 +1,29 @@
+# Source control
+.git
+.gitignore
+.gitattributes
+
+# CI / IDE
+.github
+.vscode
+.idea
+*.code-workspace
+
+# Extraction tooling — runtime image doesn't need it
+scripts/
+
+# Local-dev artifacts
+_shotwrap.html
+update_data.js
+verify_data.js
+docs/
+
+# Editor / OS noise
+*.swp
+.DS_Store
+Thumbs.db
+node_modules/
+
+# Don't recursively bundle the deploy dir into /usr/share/nginx/html
+# (we only want deploy/nginx.conf, copied explicitly in the Dockerfile)
+deploy/README.md

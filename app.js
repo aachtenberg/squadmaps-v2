@@ -538,7 +538,13 @@
     document.getElementById('map-grid').classList.add('hidden');
     const mv = document.getElementById('map-view');
     mv.classList.remove('hidden');
-    setLeftSidebarOpen(leftSidebarOpen || !layerRaw || !resolvedLayer);
+    // Auto-open the layer panel only when the user needs the picker —
+    // either because no layer was specified (entry from the map grid) or
+    // the named layer didn't resolve. Don't carry over the current state,
+    // otherwise a hashchange triggered by clicking a layer item re-opens
+    // the panel before the click handler's setLeftSidebarOpen(false)
+    // settles it.
+    setLeftSidebarOpen(!layerRaw || !resolvedLayer);
 
     renderLayerList(layers, idx);
     selectLayer(layers, idx);

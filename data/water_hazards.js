@@ -5,7 +5,7 @@ window.WATER_HAZARDS = {
   "AlBasrah": {
     severity: "moderate",
     infantryPassable: "partial",
-    summary: "River depth varies — some sections allow infantry wading, deeper areas drown infantry.",
+    summary: "River depth varies — some sections drown infantry.",
     hazards: [
       "Shatt al-Arab waterway is impassable to infantry in deeper central channels",
       "Shallow canal crossings exist on the eastern edges",
@@ -15,7 +15,7 @@ window.WATER_HAZARDS = {
   "BlackCoast": {
     severity: "high",
     infantryPassable: "no",
-    summary: "Coastal ocean is impassable. Inland water bodies vary in depth; some are deep enough to drown infantry.",
+    summary: "Coastal ocean impassable — inland water varies.",
     hazards: [
       "Open ocean and coastal waters are lethal to infantry",
       "Inland lakes and ponds have variable depth — some are passable, others are not",
@@ -25,7 +25,7 @@ window.WATER_HAZARDS = {
   "GooseBay": {
     severity: "high",
     infantryPassable: "no",
-    summary: "Coastal ocean is impassable to infantry. Inland lakes are shallow enough to wade in most areas.",
+    summary: "Ocean impassable on foot — inland lakes usually wadeable.",
     hazards: [
       "Open ocean and exposed coastline are impassable on foot",
       "Inland waterways are generally fordable by infantry",
@@ -35,7 +35,7 @@ window.WATER_HAZARDS = {
   "Manicouagan": {
     severity: "high",
     infantryPassable: "no",
-    summary: "Central river is generally impassable to infantry (too deep). Water above the dam is also impassable.",
+    summary: "Central river impassable on foot — bridges are chokepoints.",
     hazards: [
       "Manicouagan River in the centre of the map is too deep for infantry to cross",
       "Water above the dam is deep and impassable on foot",
@@ -46,7 +46,7 @@ window.WATER_HAZARDS = {
   "Harju": {
     severity: "low",
     infantryPassable: "yes",
-    summary: "Shallow marshland and minor waterways. Most water is passable by infantry with reduced speed.",
+    summary: "Marshland slows infantry but doesn't block them.",
     hazards: [
       "Marshy ground slows infantry movement",
       "No deep water obstacles that block infantry"
@@ -55,7 +55,7 @@ window.WATER_HAZARDS = {
   "Narva": {
     severity: "moderate",
     infantryPassable: "partial",
-    summary: "Narva River splits the map. Depth varies — some areas are wadeable, others require bridge crossings.",
+    summary: "River splits the map — some crossings need bridges.",
     hazards: [
       "River crossing points are limited and become contested chokepoints",
       "Flooded variant significantly increases water coverage and depth"
@@ -64,7 +64,7 @@ window.WATER_HAZARDS = {
   "Skorpo": {
     severity: "moderate",
     infantryPassable: "partial",
-    summary: "Fjord and coastal waters are deep and impassable. Inland streams are generally fordable.",
+    summary: "Fjords impassable — inland streams are fordable.",
     hazards: [
       "Fjord waters between islands require boats or air transport",
       "Inland streams and ponds are wadeable by infantry"
@@ -73,7 +73,7 @@ window.WATER_HAZARDS = {
   "Fallujah": {
     severity: "low",
     infantryPassable: "yes",
-    summary: "Euphrates River borders the map but rarely affects gameplay. Canal water is shallow.",
+    summary: "River borders the map — rarely affects play.",
     hazards: [
       "Canal crossings slow infantry slightly but are passable",
       "River edge is mostly out of play area"
@@ -82,7 +82,7 @@ window.WATER_HAZARDS = {
   "Sanxian": {
     severity: "moderate",
     infantryPassable: "partial",
-    summary: "Island map with coastal waters and rivers. Deep water separates land masses.",
+    summary: "Deep water separates islands — boats or air required.",
     hazards: [
       "Inter-island water is impassable to infantry",
       "Boats or helicopters needed for cross-island movement"
@@ -91,7 +91,7 @@ window.WATER_HAZARDS = {
   "Tallil": {
     severity: "low",
     infantryPassable: "yes",
-    summary: "Minimal water presence. Small water features are shallow and passable.",
+    summary: "Minimal water — all passable.",
     hazards: [
       "No significant water obstacles for infantry"
     ]
@@ -99,7 +99,7 @@ window.WATER_HAZARDS = {
   "Yehorivka": {
     severity: "low",
     infantryPassable: "yes",
-    summary: "Small river and ponds are shallow. Infantry can wade across most water features.",
+    summary: "Shallow — infantry can wade across.",
     hazards: [
       "River crossings slow movement but do not block infantry"
     ]
@@ -107,7 +107,7 @@ window.WATER_HAZARDS = {
   "Gorodok": {
     severity: "low",
     infantryPassable: "yes",
-    summary: "Minor waterways and ponds. All are passable by infantry.",
+    summary: "Minor waterways — all passable.",
     hazards: [
       "No significant water obstacles"
     ]
@@ -115,7 +115,7 @@ window.WATER_HAZARDS = {
   "Kokan": {
     severity: "low",
     infantryPassable: "yes",
-    summary: "Irrigation channels and shallow water. All crossings are infantry-passable.",
+    summary: "Shallow canals — all passable.",
     hazards: [
       "Canal crossings cause minor speed reduction but are safe"
     ]
@@ -123,7 +123,7 @@ window.WATER_HAZARDS = {
   "Mutaha": {
     severity: "low",
     infantryPassable: "yes",
-    summary: "Minor irrigation canals. Shallow and passable everywhere.",
+    summary: "Shallow canals — no obstacles.",
     hazards: [
       "No significant water obstacles"
     ]

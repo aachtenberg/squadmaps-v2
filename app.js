@@ -1776,7 +1776,24 @@
       }
     }
 
-    for (const entry of orderedObjectives) {
+    // Render lower-badge clusters first so their dedup claim wins. Squad's
+    // SDK assigns the same physical sub-point (e.g. Black Coast's "Paseka"
+    // at -44772/106216) to multiple clusters across different lanes — A2 in
+    // Alpha (step 2) and B1/F1/G1 in Bravo/Foxtrot/Golf (step 1). Without
+    // sorting, dict-insertion order lets A2 stake the position with badge 2
+    // and the badge-1 attempts get deduped silently. Mains stay where they
+    // are; non-mains sort by badge ascending.
+    const renderEntries = [...orderedObjectives].sort((a, b) => {
+      const aMain = /team[12]main/.test(normalizeObjectiveToken(a.key));
+      const bMain = /team[12]main/.test(normalizeObjectiveToken(b.key));
+      if (aMain !== bMain) return aMain ? -1 : 1;
+      if (aMain) return 0;
+      const ba = laneBadgeNumbers?.get(normalizeObjectiveToken(a.key));
+      const bb = laneBadgeNumbers?.get(normalizeObjectiveToken(b.key));
+      return (ba ?? Infinity) - (bb ?? Infinity);
+    });
+
+    for (const entry of renderEntries) {
       if (!entry.position) continue;
 
       const entryToken = normalizeObjectiveToken(entry.key);

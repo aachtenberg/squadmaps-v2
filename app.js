@@ -522,29 +522,26 @@
 
   // ---- Open Map ----
   function openMap(mapId, layerRaw) {
-    currentMapId = mapId;
     const layers = mapGroups[mapId];
     if (!layers || !layers.length) return;
+    const mv = document.getElementById('map-view');
+    // "Fresh entry" = arriving at this map for the first time (from grid,
+    // deep link, or switching maps). Within-map navigation (e.g. picking a
+    // layer, which writes to the hash and re-enters openMap) must NOT
+    // reopen the sidebar — the click handler closes it intentionally.
+    const isFreshEntry = currentMapId !== mapId || mv.classList.contains('hidden');
+    currentMapId = mapId;
 
     // Find layer by raw name or use first
     let idx = 0;
-    let resolvedLayer = true;
     if (layerRaw) {
       const found = layers.findIndex(l => l.rawName === layerRaw);
       if (found >= 0) idx = found;
-      else resolvedLayer = false;
     }
 
     document.getElementById('map-grid').classList.add('hidden');
-    const mv = document.getElementById('map-view');
     mv.classList.remove('hidden');
-    // Auto-open the layer panel only when the user needs the picker —
-    // either because no layer was specified (entry from the map grid) or
-    // the named layer didn't resolve. Don't carry over the current state,
-    // otherwise a hashchange triggered by clicking a layer item re-opens
-    // the panel before the click handler's setLeftSidebarOpen(false)
-    // settles it.
-    setLeftSidebarOpen(!layerRaw || !resolvedLayer);
+    if (isFreshEntry) setLeftSidebarOpen(true);
 
     renderLayerList(layers, idx);
     selectLayer(layers, idx);
@@ -3364,7 +3361,7 @@
     leftSidebarOpen = !!open;
     const mapViewBody = document.querySelector('.map-view-body');
     const sidebar = document.getElementById('left-sidebar');
-    const toggle = document.getElementById('left-sidebar-toggle');
+    const tab = document.getElementById('left-sidebar-tab');
     if (mapViewBody) {
       mapViewBody.classList.toggle('sidebar-open', leftSidebarOpen);
       mapViewBody.classList.toggle('sidebar-collapsed', !leftSidebarOpen);
@@ -3373,9 +3370,9 @@
       sidebar.classList.toggle('sidebar-open', leftSidebarOpen);
       sidebar.classList.toggle('sidebar-collapsed', !leftSidebarOpen);
     }
-    if (toggle) {
-      toggle.setAttribute('aria-expanded', leftSidebarOpen ? 'true' : 'false');
-      toggle.textContent = leftSidebarOpen ? 'Hide Panel' : 'Layers';
+    if (tab) {
+      tab.setAttribute('aria-expanded', leftSidebarOpen ? 'true' : 'false');
+      tab.title = leftSidebarOpen ? 'Hide layers panel' : 'Show layers panel';
     }
   }
 
@@ -4273,9 +4270,9 @@
         setStrategyDrawerOpen(!strategyDrawerOpen);
       });
     }
-    const sidebarToggle = document.getElementById('left-sidebar-toggle');
-    if (sidebarToggle) {
-      sidebarToggle.addEventListener('click', () => setLeftSidebarOpen(!leftSidebarOpen));
+    const sidebarTab = document.getElementById('left-sidebar-tab');
+    if (sidebarTab) {
+      sidebarTab.addEventListener('click', () => setLeftSidebarOpen(!leftSidebarOpen));
     }
     const strategyClose = document.getElementById('strategy-drawer-close');
     if (strategyClose) strategyClose.addEventListener('click', () => setStrategyDrawerOpen(false));

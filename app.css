@@ -251,31 +251,66 @@ html, body {
   background: var(--bg-card-hover);
 }
 
-.sidebar-toggle {
-  background: rgba(255, 255, 255, 0.05);
+/* ---- Left sidebar drawer tab ---- */
+.left-sidebar-tab {
+  position: absolute;
+  top: 50%;
+  left: var(--sidebar-width);
+  transform: translate(-1px, -50%);
+  width: 24px;
+  height: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 0;
+  background: var(--bg-sidebar);
   border: 1px solid var(--border);
-  color: var(--text-primary);
-  padding: 7px 12px;
-  border-radius: 8px;
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  color: var(--text-secondary);
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
+  z-index: 410;
   font-family: var(--font);
-  letter-spacing: 0.04em;
-  transition: background 0.15s, border-color 0.15s, transform 0.15s;
-  white-space: nowrap;
+  transition: left 0.2s ease, background 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.sidebar-toggle:hover {
-  background: rgba(255, 255, 255, 0.09);
-  border-color: #5a5a48;
+.map-view-body.sidebar-collapsed .left-sidebar-tab {
+  left: 0;
 }
 
-.sidebar-toggle[aria-expanded="true"] {
+.left-sidebar-tab:hover {
   background: rgba(107, 142, 35, 0.16);
   border-color: rgba(107, 142, 35, 0.34);
   color: #dce7bb;
-  transform: translateY(-1px);
+}
+
+.left-sidebar-tab-chevron {
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 6px solid currentColor;
+  transition: transform 0.2s ease;
+}
+
+.left-sidebar-tab[aria-expanded="true"] .left-sidebar-tab-chevron {
+  transform: rotate(180deg);
+}
+
+.left-sidebar-tab-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.left-sidebar-tab:hover .left-sidebar-tab-label {
+  color: #dce7bb;
 }
 
 .strategy-drawer-toggle {
@@ -2310,7 +2345,6 @@ html, body {
     padding: 8px 10px;
   }
 
-  .sidebar-toggle,
   .strategy-drawer-toggle {
     padding: 7px 10px;
   }
@@ -2347,6 +2381,10 @@ html, body {
 
   .map-view-body.sidebar-collapsed .left-sidebar {
     width: min(280px, calc(100vw - 52px));
+  }
+
+  .map-view-body.sidebar-open .left-sidebar-tab {
+    left: min(280px, calc(100vw - 52px));
   }
 
   .map-grid {

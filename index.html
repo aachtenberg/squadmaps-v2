@@ -46,11 +46,16 @@
           <h2 id="layer-name"></h2>
           <div class="layer-meta" id="layer-meta"></div>
         </div>
-        <button id="left-sidebar-toggle" class="sidebar-toggle" aria-expanded="false" aria-controls="left-sidebar">Layers</button>
         <button id="strategy-drawer-toggle" class="strategy-drawer-toggle" aria-expanded="false" aria-controls="strategy-drawer">Strategy</button>
       </div>
 
       <div class="map-view-body">
+        <!-- Drawer tab: toggles the left sidebar; sits at the sidebar's right edge -->
+        <button id="left-sidebar-tab" class="left-sidebar-tab" type="button"
+                aria-expanded="false" aria-controls="left-sidebar" title="Toggle layers panel">
+          <span class="left-sidebar-tab-chevron" aria-hidden="true"></span>
+          <span class="left-sidebar-tab-label">Layers</span>
+        </button>
         <!-- Left sidebar: tabbed (Layers / Info) -->
         <aside id="left-sidebar" class="sidebar left-sidebar">
           <div class="sidebar-tabs">

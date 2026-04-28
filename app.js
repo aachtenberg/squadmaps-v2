@@ -924,6 +924,11 @@
     // "Z-Team2 Main", "Team2Main_1", etc.
     if (/team\s*1[^a-z0-9]*main/.test(raw)) return 'team1main';
     if (/team\s*2[^a-z0-9]*main/.test(raw) || /^z[-\s_]*team\s*2/.test(raw)) return 'team2main';
+    // Some maps name mains by faction instead of by team number. Mestia
+    // RAAS v1 ships "00-USAMain" / "100-MILMain" — the leading 00- and 100-
+    // index prefixes are reserved for the two main bases, so trust them.
+    if (/^0+-[a-z0-9]*main\b/.test(raw)) return 'team1main';
+    if (/^100+-[a-z0-9]*main\b/.test(raw)) return 'team2main';
     // Clusters: strip BP_ prefix and the CaptureZoneCluster suffix, then
     // collapse to alnum. KEEP the leading index — `01-CaptureZoneCluster`
     // and `02-CaptureZoneCluster` must produce distinct tokens (used to
@@ -952,8 +957,9 @@
       .replace(/_/g, ' ')
       .trim();
 
-    if (/team\s*1\s*main|team1main/i.test(key)) return 'Team 1 Main';
-    if (/team\s*2\s*main|team2main/i.test(key) || /main_1$/i.test(key)) return 'Team 2 Main';
+    const normalizedKey = normalizeObjectiveToken(key);
+    if (normalizedKey === 'team1main') return 'Team 1 Main';
+    if (normalizedKey === 'team2main') return 'Team 2 Main';
 
     // Use first unique point name as display (short label for map markers)
     if (pointNames.length > 0) {
@@ -1810,10 +1816,12 @@
         continue;
       }
 
-      // Determine team ownership from key name
+      // Determine team ownership from the normalized token so faction-named
+      // mains like Mestia's "00-USAMain" / "100-MILMain" still color
+      // correctly as blufor / redfor.
       let team = 'neutral';
-      if (/team1main/i.test(entry.key)) team = 'blufor';
-      else if (/team2main/i.test(entry.key) || /main_1$/i.test(entry.key)) team = 'redfor';
+      if (entryToken === 'team1main') team = 'blufor';
+      else if (entryToken === 'team2main') team = 'redfor';
 
       // Compute marker styling for this objective
       let markerClass = team;

@@ -1031,7 +1031,42 @@
     const explicit = (cp.lanes || {}).laneObjects || {};
     if (Object.keys(explicit).length > 0) return explicit;
     if (layer.gamemode === 'Invasion') return getInvasionLanes(layer);
+    // Fallback for RAAS layers Squad ships without an SQRAASLaneInitializer
+    // (Mestia RAAS v1 has 5 numbered clusters and no lane graph). Synthesize
+    // a single lane from the cluster numeric prefix so drawLaneLines, the
+    // progressive-RAAS UX, and badge numbering all light up.
+    if (layer.gamemode === 'RAAS') {
+      const synthesized = synthesizeSequentialLane(layer);
+      if (synthesized) return synthesized;
+    }
     return {};
+  }
+
+  function synthesizeSequentialLane(layer) {
+    const objectives = layer.objectives || {};
+    let team1Main = null;
+    let team2Main = null;
+    const numbered = [];
+    for (const key of Object.keys(objectives)) {
+      const tok = normalizeObjectiveToken(key);
+      if (tok === 'team1main') { team1Main = key; continue; }
+      if (tok === 'team2main') { team2Main = key; continue; }
+      const m = key.match(/^0*(\d+)-/);
+      if (m) {
+        const idx = parseInt(m[1], 10);
+        // Skip the team-2-main slot (typically 100-) which already matched
+        // above; this catches contestable clusters only.
+        if (idx > 0 && idx < 100) numbered.push({ key, idx });
+      }
+    }
+    if (!team1Main || !team2Main || numbered.length === 0) return null;
+    numbered.sort((a, b) => a.idx - b.idx);
+    return {
+      Default: {
+        name: 'Default',
+        pointsOrder: [team1Main, ...numbered.map(c => c.key), team2Main],
+      },
+    };
   }
 
   function getLaneNames(layer) {
@@ -1865,11 +1900,15 @@
         : '';
       const subPoints = getSubPoints(entry.objective);
 
-      // Render every sub-point separately for lane-based modes so the path
-      // structure is visible (each physical flag position is its own marker).
-      // Invasion enters this branch via getInvasionLanes() exposing fake lanes,
-      // which sets hasRaasLanes for layouts whose data lacks an explicit graph.
-      if (subPoints.length > 1 && !isMain && hasRaasLanes) {
+      // Render every sub-point separately so each physical flag position
+      // gets its own marker — Squad's RAAS clusters can hold multiple
+      // candidate flags (e.g. Mestia RAAS v1's 01 cluster contains both
+      // Farmstead and Quarry, ~70k UE units apart) and only one is the
+      // actual capture per match. The lane-based renderer needs them as
+      // individual markers anyway. The only case we collapse to a single
+      // marker is the AAS fixed path, where each cluster IS one fixed
+      // capture point.
+      if (subPoints.length > 1 && !isMain && layer.gamemode !== 'AAS') {
         // For captured objectives, only show the sub-point the user selected
         const selectedSp = capturedSubPoints[entryToken];
         const pointsToRender = (isCaptured && selectedSp)

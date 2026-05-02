@@ -3515,8 +3515,9 @@
     const rows = data.length;
     const cols = data[0].length;
     const col = ((worldX - b.xmin) / (b.xmax - b.xmin)) * (cols - 1);
-    // Row 0 is at ymax (north) — UE +Y is north in our Leaflet setup.
-    const row = ((b.ymax - worldY) / (b.ymax - b.ymin)) * (rows - 1);
+    // Heightmap row 0 is at the north edge of the texture (matches SquadCalc's
+    // upstream JSONs). In our SquadCRS the screen-top maps to ymin, so north = ymin.
+    const row = ((worldY - b.ymin) / (b.ymax - b.ymin)) * (rows - 1);
     if (col < 0 || col > cols - 1 || row < 0 || row > rows - 1) return 0;
     const r0 = Math.floor(row), r1 = Math.min(rows - 1, r0 + 1);
     const c0 = Math.floor(col), c1 = Math.min(cols - 1, c0 + 1);
@@ -3637,8 +3638,10 @@
     const dxM = (target.ueX - mortar.ueX) / 100;
     const dyM = (target.ueY - mortar.ueY) / 100;
     const dist = Math.hypot(dxM, dyM);
-    // Bearing: 0deg = North (+Y), 90deg = East (+X), clockwise
-    let bearing = Math.atan2(dxM, dyM) * 180 / Math.PI;
+    // Bearing: 0deg = North, 90deg = East, clockwise. North on our screen is
+    // lower ueY (Leaflet pixel-y grows downward and our SquadCRS keeps c>0),
+    // so the north component is -dyM.
+    let bearing = Math.atan2(dxM, -dyM) * 180 / Math.PI;
     if (bearing < 0) bearing += 360;
 
     const shell = weapon.shells[shellIdx];

@@ -41,24 +41,37 @@ Stage B runs any time you want fresh map data. ~3-5 minutes,
 fully scriptable.
 
 
-Stage A: Squad SDK CSV exports (manual, infrequent)
----------------------------------------------------
-1. Launch the Squad Editor (LaunchModSDK.bat).
+Stage A: Squad SDK CSV exports (run on each Squad version bump)
+---------------------------------------------------------------
+Drives the Squad Editor headlessly to dump SquadLayers.csv,
+SquadVehicleLayers.csv, and SquadDeployables.csv.
 
-2. Window → Developer Tools → Output Log, switch dropdown to "Python":
+From WSL:
 
-     import sys
-     sys.path.insert(0, r'E:/epic/SquadEditor/Squad/Content/Python/LevelScript')
-     from ExportLayers import LayerExporter
-     exporter = LayerExporter(r'E:/epic/SquadEditor/Squad/Saved/SquadMapsExport')
-     exporter.ExportToCSV()
+     cmd.exe /d /c "pushd E:\epic\SquadEditor && \
+       %CD%\scripts\extraction\run_export.bat"
 
-3. CSVs land in E:\epic\SquadEditor\Squad\Saved\SquadMapsExport\:
+(Adjust the SDK_ROOT variable inside run_export.bat if your SDK isn't at
+E:\epic\SquadEditor.) Takes ~6-8 minutes — the editor cold-starts, loads
+all assets, and only then fires LevelScript\run_export.py which writes
+the CSVs into <SDK>\Squad\Saved\SquadMapsExport\:
    - SquadLayers.csv        — layer config (factions, tickets, lighting, commander)
    - SquadVehicleLayers.csv — vehicle assignments per team
    - SquadDeployables.csv   — deployable info
 
-4. Close the editor.
+If a Squad version bump introduces "_Automation" template layers (or any
+other layer with an empty TeamConfigs), ExportLayers.py needs a guard
+clause to skip them — the upstream script does Teams[0]/Teams[1]
+unconditionally and crashes otherwise. The guard is:
+
+     Teams = asset.get_editor_property("TeamConfigs")
+     if len(Teams) < 2:
+         unreal.log_warning("Skipping layer with %d TeamConfigs: %s" % (len(Teams), name))
+         continue
+
+Done by hand — ExportLayers.py lives inside the SDK install
+(E:\epic\SquadEditor\Squad\Content\Python\LevelScript\ExportLayers.py),
+not in this repo, so the patch needs reapplying after each SDK update.
 
 
 Stage B: Spatial extraction + site data build (automated)

@@ -794,10 +794,20 @@ public static class Program
         provider.Initialize();
         Console.WriteLine($"  {provider.Files.Count} files seen.");
 
-        // Find all gameplay layer umaps
+        // Find all gameplay layer umaps — these live under:
+        //   Maps/<MapName>/Gameplay_Layers/<Layer>.umap     (standard PvP layers)
+        //   Coop/Maps/*/<Layer>.umap                        (Fireteam / Coop layers)
+        //   Coop/Maps/*/Layers/<Layer>.umap                 (some Coop variants)
         var gameplayLayers = provider.Files
-            .Where(kvp => kvp.Key.Contains("Gameplay_Layers/", StringComparison.OrdinalIgnoreCase)
-                       && kvp.Key.EndsWith(".umap", StringComparison.OrdinalIgnoreCase))
+            .Where(kvp => kvp.Key.EndsWith(".umap", StringComparison.OrdinalIgnoreCase)
+                       && (kvp.Key.Contains("Gameplay_Layers/", StringComparison.OrdinalIgnoreCase)
+                           || kvp.Key.Contains("Coop/Maps/", StringComparison.OrdinalIgnoreCase)))
+            // Exclude base/art/lighting sub-levels (only want the actual gameplay layers)
+            .Where(kvp => !kvp.Key.Contains("/Art_Layers/", StringComparison.OrdinalIgnoreCase)
+                       && !kvp.Key.Contains("/Lighting/", StringComparison.OrdinalIgnoreCase)
+                       && !kvp.Key.Contains("/Development/", StringComparison.OrdinalIgnoreCase)
+                       && !kvp.Key.Contains("/Automation/", StringComparison.OrdinalIgnoreCase)
+                       && !kvp.Key.Contains("_Level.", StringComparison.OrdinalIgnoreCase))
             .Select(kvp => kvp.Key)
             .OrderBy(p => p)
             .ToList();
@@ -898,6 +908,26 @@ public static class Program
                         Console.WriteLine($"    [{e.Class?.Name.Text}] {e.Name} -> {pkgName}");
                         Console.WriteLine($"      LevelTransform.Translation: ({lt.Translation.X:F0}, {lt.Translation.Y:F0}, {lt.Translation.Z:F0})");
                         Console.WriteLine($"      LevelTransform.Rotation:    ({lt.Rotation.X:F3}, {lt.Rotation.Y:F3}, {lt.Rotation.Z:F3}, {lt.Rotation.W:F3})");
+                    }
+
+                    // Dump Coop-specific actors for Fireteam analysis
+                    var coopObjective = allExports.FirstOrDefault(e =>
+                        (e.Class?.Name.Text ?? "").Contains("DestructableObjective", StringComparison.OrdinalIgnoreCase));
+                    if (coopObjective != null)
+                    {
+                        Console.WriteLine($"  === Sample BP_Coop_DestructableObjective_C: {coopObjective.Name} ===");
+                        var coopJson = JsonConvert.SerializeObject(coopObjective, Formatting.Indented);
+                        Console.WriteLine(coopJson.Length > 3000 ? coopJson[..3000] + "\n  ... (truncated)" : coopJson);
+                        Console.WriteLine();
+                    }
+                    var selector = allExports.FirstOrDefault(e =>
+                        (e.Class?.Name.Text ?? "").Contains("ChooseOneSelector", StringComparison.OrdinalIgnoreCase));
+                    if (selector != null)
+                    {
+                        Console.WriteLine($"  === Sample ChooseOneSelector_C: {selector.Name} ===");
+                        var selJson = JsonConvert.SerializeObject(selector, Formatting.Indented);
+                        Console.WriteLine(selJson.Length > 3000 ? selJson[..3000] + "\n  ... (truncated)" : selJson);
+                        Console.WriteLine();
                     }
 
                     Console.WriteLine();

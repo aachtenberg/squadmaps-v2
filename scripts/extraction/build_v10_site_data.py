@@ -166,6 +166,73 @@ def parse_layers_csv(csv_path):
 
 
 # ---------------------------------------------------------------------------
+# Parse the v10 SquadVehicleLayers.csv into structured vehicle records
+# ---------------------------------------------------------------------------
+
+def parse_vehicles_csv(csv_path):
+    """Parse SquadVehicleLayers.csv into {layer_raw_name: {unit_id: [vehicles]}}.
+
+    CSV columns: '', 'Layer Name', 'Team Name', 'Team ID', 'Icon', 'Vehicle Name',
+                 'Vehicle Count', 'Initial Delay', 'Respawn Time'
+
+    The Layer Name / Team Name / Team ID columns fill forward across rows; only
+    the first row in a group has them populated.
+
+    Team ID values (e.g. 'USMC_LO_CombinedArms') match the layer's faction-unit
+    asset names, so the returned dict keys the vehicle lists by the same string
+    the frontend sees as `selectedOption.defaultUnit` / `teamConfigs.teamN.defaultFactionUnit`.
+    """
+    out = {}
+
+    with open(csv_path, 'r', encoding='utf-8-sig', newline='') as f:
+        reader = csv.reader(f)
+        next(reader, None)  # header
+
+        cur_layer = cur_team_id = None
+        for row in reader:
+            if len(row) < 9:
+                continue
+            new_layer = row[1].strip() if row[1] else None
+            new_team_id = row[3].strip() if row[3] else None
+            if new_layer:
+                cur_layer = new_layer
+            if new_team_id:
+                cur_team_id = new_team_id
+                # New Team ID header — start a fresh list. Some layers list the
+                # same faction twice (once as Team1/Team2 Default, again in the
+                # general faction list); resetting on each header keeps the
+                # last copy rather than concatenating them.
+                if cur_layer:
+                    out.setdefault(cur_layer, {})[cur_team_id] = []
+
+            name = row[5].strip()
+            if not (cur_layer and cur_team_id and name):
+                continue
+
+            try:
+                count = int(row[6].strip())
+            except (ValueError, TypeError):
+                count = 0
+            try:
+                initial_delay = float(row[7].strip())
+            except (ValueError, TypeError):
+                initial_delay = 0.0
+            try:
+                respawn = float(row[8].strip())
+            except (ValueError, TypeError):
+                respawn = 0.0
+
+            out[cur_layer][cur_team_id].append({
+                'name': name,
+                'count': count,
+                'initialDelayMin': initial_delay,
+                'respawnMin': respawn,
+            })
+
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Build teamConfigs in the format the React app expects
 # ---------------------------------------------------------------------------
 
@@ -511,7 +578,7 @@ def main():
                         required=True,
                         help='Existing site data JSON to use as the baseline (typically v2/data/v10_data.json)')
     parser.add_argument('--layers-csv', required=True, help='SquadLayers.csv from the SDK CSV export')
-    parser.add_argument('--vehicles-csv', help='SquadVehicleLayers.csv (optional, currently unused)')
+    parser.add_argument('--vehicles-csv', help='SquadVehicleLayers.csv (optional — if provided, adds per-unit vehicle lists with respawn times)')
     parser.add_argument('--spatial-dir', help='CUE4Parse spatial JSON directory (optional but strongly recommended)')
     parser.add_argument('--output', required=True, help='Output JSON path')
     args = parser.parse_args()
@@ -534,6 +601,14 @@ def main():
     print("Parsing SDK CSV data...")
     csv_layers = parse_layers_csv(args.layers_csv)
     print(f"  SDK CSV layers (raw): {len(csv_layers)}")
+
+    # Parse vehicle CSV (optional)
+    vehicles_by_layer = {}
+    if args.vehicles_csv:
+        print("Parsing SDK vehicle CSV...")
+        vehicles_by_layer = parse_vehicles_csv(args.vehicles_csv)
+        total_records = sum(sum(len(v) for v in u.values()) for u in vehicles_by_layer.values())
+        print(f"  Vehicle CSV: {len(vehicles_by_layer)} layers, {total_records} vehicle records")
 
     # Filter out non-playable layers (CoopTemplate, JensensRange, JensensLobby, Training, Tutorial)
     SKIP_PATTERNS = ['CoopTemplate', 'JensensRange', 'JensensLobby',
@@ -589,6 +664,10 @@ def main():
         layer['teamConfigs']['team1']['tickets'] = csv_row['tickets_t1']
         layer['teamConfigs']['team2']['tickets'] = csv_row['tickets_t2']
 
+        # Attach per-unit vehicle lists (faction asset_name -> [vehicles])
+        if vehicles_by_layer:
+            layer['vehiclesByUnit'] = vehicles_by_layer.get(name, {})
+
         # Refresh spatial from CUE4Parse if we have it
         if name in spatial_index:
             merge_spatial_into_layer(layer, spatial_index[name], csv_row['cp_type'])
@@ -633,6 +712,10 @@ def main():
         else:
             stats['new_created'] += 1
             print(f"  {name}: no sibling found, created with empty spatial data")
+
+        # Attach per-unit vehicle lists (faction asset_name -> [vehicles])
+        if vehicles_by_layer:
+            new_layer['vehiclesByUnit'] = vehicles_by_layer.get(name, {})
 
         # CUE4Parse wins over inherited spatial if both are available
         if name in spatial_index:

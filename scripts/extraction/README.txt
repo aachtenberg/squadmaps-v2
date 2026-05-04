@@ -72,6 +72,8 @@ unconditionally and crashes otherwise. The guard is:
 Done by hand — ExportLayers.py lives inside the SDK install
 (E:\epic\SquadEditor\Squad\Content\Python\LevelScript\ExportLayers.py),
 not in this repo, so the patch needs reapplying after each SDK update.
+A vendored copy is checked in at scripts/extraction/sdk_patches/
+that you can drop in over the SDK's version — see the README there.
 
 
 Stage B: Spatial extraction + site data build (automated)

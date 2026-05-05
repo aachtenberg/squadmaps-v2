@@ -2513,10 +2513,13 @@
     const phases = dest.phases || [];
     if (!phases.length) return;
 
+    // Three hues spaced wide on the color wheel so phases stay distinct on
+    // mixed brown/green/tan satellite imagery, ordered cool→warm→hot to
+    // preserve a sense of escalation across phases.
     const phaseColors = [
-      { fill: 'rgba(210, 170, 80, 0.25)', border: '#d2aa50' },
-      { fill: 'rgba(205, 133, 63, 0.25)', border: '#cd853f' },
-      { fill: 'rgba(160, 82, 45, 0.25)', border: '#a0522d' }
+      { fill: 'rgba(6, 182, 212, 0.22)',  border: '#06b6d4' }, // cyan
+      { fill: 'rgba(249, 115, 22, 0.22)', border: '#f97316' }, // orange
+      { fill: 'rgba(236, 72, 153, 0.22)', border: '#ec4899' }  // magenta
     ];
 
     for (const phase of phases) {
@@ -2537,8 +2540,8 @@
 
         const polygon = L.polygon(latlngs, {
           color: colors.border,
-          weight: 2,
-          opacity: 0.8,
+          weight: 2.5,
+          opacity: 0.95,
           fillColor: colors.fill,
           fillOpacity: 1,
           dashArray: activeDestructionPhase === phaseNum ? null : '6 3',

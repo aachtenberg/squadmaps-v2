@@ -1778,24 +1778,27 @@ html, body {
   width: 22px;
   height: 22px;
   border-radius: 4px;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
   color: #fff;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
-  opacity: 0.85;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
   pointer-events: none;
 }
 
+/* Saturated darker tint of each phase polygon hue for legible labels
+   over varied satellite imagery. */
 .phase-label.phase-0 {
-  background: rgba(210, 170, 80, 0.7);
+  background: rgba(14, 116, 144, 0.95); /* dark cyan */
 }
 
 .phase-label.phase-1 {
-  background: rgba(205, 133, 63, 0.7);
+  background: rgba(194, 65, 12, 0.95); /* dark orange */
 }
 
 .phase-label.phase-2 {
-  background: rgba(160, 82, 45, 0.7);
+  background: rgba(190, 24, 93, 0.95); /* dark magenta */
 }
 
 .phase-btn {
@@ -1812,15 +1815,32 @@ html, body {
 }
 
 .phase-btn:hover {
-  background: rgba(210, 170, 80, 0.2);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
-  border-color: #d2aa50;
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .phase-btn.active {
-  background: #d2aa50;
+  background: rgba(255, 255, 255, 0.85);
   color: var(--bg-primary);
-  border-color: #d2aa50;
+  border-color: rgba(255, 255, 255, 0.85);
+}
+
+/* Active phase buttons use the same hue as the polygons they select,
+   so the picker is self-documenting against the map. */
+.phase-btn[data-phase="0"].active {
+  background: #06b6d4;
+  border-color: #06b6d4;
+}
+
+.phase-btn[data-phase="1"].active {
+  background: #f97316;
+  border-color: #f97316;
+}
+
+.phase-btn[data-phase="2"].active {
+  background: #ec4899;
+  border-color: #ec4899;
 }
 
 .destruction-info {

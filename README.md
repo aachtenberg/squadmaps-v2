@@ -7,7 +7,7 @@ fully automated v10 SDK extraction pipeline (no editor required), a
 planner, an HAB placement tool, and rendering for Territory Control hex
 zones, Destruction phase regions, and AAS fixed paths.
 
-> **Status:** Live at [squadmaps.xgrunt.com](https://squadmaps.xgrunt.com) — deployed to a k3s homelab via the [Dockerfile](Dockerfile) and [k8s manifest in homelab-infra](https://github.com/aachtenberg/homelab-infra/blob/main/k3s/base/apps/squadmaps.yml).
+> **Status:** Live at [squadmaps.xgrunt.com](https://squadmaps.xgrunt.com), tracking **Squad 10.4** data — deployed to a k3s homelab via the [Dockerfile](Dockerfile) and [k8s manifest in homelab-infra](https://github.com/aachtenberg/homelab-infra/blob/main/k3s/base/apps/squadmaps.yml).
 
 ## Highlights
 

@@ -17,7 +17,8 @@ Usage:
   python3 scripts/upscale_tiles_to_z5.py                  # all textures
   python3 scripts/upscale_tiles_to_z5.py T_AlBasrah_Minimap Anvil_Minimap   # specific
   python3 scripts/upscale_tiles_to_z5.py --dry-run        # plan only
-  python3 scripts/upscale_tiles_to_z5.py --gpu-host aachten@192.168.0.150
+  python3 scripts/upscale_tiles_to_z5.py --gpu-host user@gpu-box.example  # override
+  SQUADMAPS_GPU_HOST=user@gpu-box.example python3 scripts/upscale_tiles_to_z5.py
 """
 
 import argparse
@@ -34,7 +35,7 @@ Image.MAX_IMAGE_PIXELS = None  # the 16384^2 PNG trips the bomb check
 REPO = Path(__file__).resolve().parent.parent
 TILES_ROOT = REPO / 'assets' / 'maps' / 'tiles'
 CACHE_ROOT = REPO / 'scripts' / 'upscale_cache'
-DEFAULT_GPU_HOST = 'aachten@192.168.0.150'
+DEFAULT_GPU_HOST = os.environ.get('SQUADMAPS_GPU_HOST')  # set this or pass --gpu-host
 GPU_WORKDIR = '~/squad'
 GPU_BINARY = './realesrgan-ncnn-vulkan'
 GPU_MODEL = 'realesrgan-x4plus'
@@ -203,11 +204,14 @@ def process_one(texname, host, keep_intermediates, dry_run):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('textures', nargs='*', help='Specific texture names (default: all)')
-    parser.add_argument('--gpu-host', default=DEFAULT_GPU_HOST, help='GPU box ssh target')
+    parser.add_argument('--gpu-host', default=DEFAULT_GPU_HOST,
+                        help='GPU box ssh target (or set $SQUADMAPS_GPU_HOST)')
     parser.add_argument('--keep-intermediates', action='store_true', help="Don't delete the giant 16384 PNG after slicing")
     parser.add_argument('--dry-run', action='store_true', help='List what would be processed without doing it')
     args = parser.parse_args()
 
+    if not args.gpu_host:
+        parser.error('GPU host required: pass --gpu-host or set $SQUADMAPS_GPU_HOST')
     textures = args.textures or discover_textures()
     print(f'Targets: {len(textures)} texture(s) — gpu={args.gpu_host}')
 

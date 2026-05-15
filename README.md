@@ -91,9 +91,12 @@ Logs: `kubectl logs -n apps deploy/squadmaps -f`.
 Full pipeline: [`scripts/extraction/README.txt`](scripts/extraction/README.txt). Two-line summary:
 
 ```bash
-# Spatial extract (no editor needed)
+# Spatial extract (no editor needed). Point SQUAD_SDK_CONTENT at the
+# Squad/ folder containing SquadGame.uproject — Squad's newer maps
+# (Al_Basrah, BlackCoast, Harju, Sanxian Islands) live under
+# Squad/Plugins/*/Content/Maps and are only discovered via the .uproject.
 cd scripts/extraction/cue4parse-extractor/SquadSpatialExtractor
-SQUAD_SDK_CONTENT=/path/to/Squad/Content dotnet run -- --all
+SQUAD_SDK_CONTENT=/path/to/Squad dotnet run -- --all
 cd ../../../..
 
 # Build site data

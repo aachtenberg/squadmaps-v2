@@ -85,8 +85,14 @@ Runs entirely from WSL/Linux with no editor.
      cd scripts/extraction/cue4parse-extractor/SquadSpatialExtractor
      dotnet build
 
-2. Extract spatial data for every umap (~3 minutes for ~177 layers):
+2. Point --content-root at Squad/ (the directory containing
+   SquadGame.uproject — NOT Squad/Content). Newer maps (Al_Basrah,
+   BlackCoast, Harju, SanxianIslands) ship under Squad/Plugins/*/Content/Maps
+   and CUE4Parse only discovers them when the .uproject is at the root.
 
+   Extract spatial data for every umap (~3 minutes for ~245 layers):
+
+     export SQUAD_SDK_CONTENT=/mnt/e/epic/SquadEditor/Squad
      dotnet run -- --all
      cd ../../../..
 

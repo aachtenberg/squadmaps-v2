@@ -17,7 +17,13 @@
 // Squad SDK content root must be specified via:
 //   --content-root <path>            (CLI flag, highest precedence)
 //   SQUAD_SDK_CONTENT env var        (fallback)
-// Example: export SQUAD_SDK_CONTENT=/path/to/Squad/Content
+// Example: export SQUAD_SDK_CONTENT=/path/to/Squad
+//
+// Point this at the directory containing SquadGame.uproject (NOT the Content
+// subdir). Squad ships its newer maps — Al_Basrah, BlackCoast, Harju,
+// SanxianIslands — as plugins under Squad/Plugins/*/Content/Maps/, so a
+// content root of Squad/Content alone misses them. Pointing at Squad/ makes
+// CUE4Parse honor the .uproject and discover plugin content automatically.
 
 using System;
 using System.Collections.Generic;
@@ -1014,7 +1020,8 @@ public static class Program
         Console.WriteLine("Usage: dotnet run -- [options]");
         Console.WriteLine();
         Console.WriteLine("Squad SDK content root (required, set one of these):");
-        Console.WriteLine("  --content-root <path>     Path to your Squad SDK Content folder");
+        Console.WriteLine("  --content-root <path>     Path to your Squad SDK Squad/ folder");
+        Console.WriteLine("                            (the directory containing SquadGame.uproject)");
         Console.WriteLine("  $SQUAD_SDK_CONTENT        Environment variable fallback");
         Console.WriteLine();
         Console.WriteLine("Selection:");

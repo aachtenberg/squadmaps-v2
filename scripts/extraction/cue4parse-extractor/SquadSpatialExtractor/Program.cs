@@ -50,6 +50,11 @@ public record Rot3(double rotation_pitch, double rotation_yaw, double rotation_r
 
 public record Main(
     string objectName,
+    // UE actor Name — see Cluster.actorName comment. AlBasrah_RAAS_v3
+    // ships its team-2 main as ActorLabel="Z-Team2 Main" but actor
+    // Name="100-Team2 Main", and the lane initializer's NodeA/NodeB
+    // references use the latter.
+    string actorName,
     string className,
     double location_x,
     double location_y,
@@ -66,6 +71,14 @@ public record CaptureZoneRecord(
 
 public record Cluster(
     string objectName,
+    // UE actor Name — matches the FPackageIndex refs used by the
+    // SQRAASLaneInitializer's AAS Lane Links. For most layers this is
+    // identical to objectName/ActorLabel, but Al Basrah RAAS v3 ships
+    // clusters where ActorLabel is "A1-..".."A7-.." while the underlying
+    // actor names are "01W-..".."05W-..._1". Without this the translator
+    // can't reconcile lane refs with cluster keys and the lane line draws
+    // a straight main→main with no intermediate stops.
+    string actorName,
     string className,
     double? sphereRadius,
     double location_x,
@@ -539,6 +552,7 @@ public static class LayerExtractor
         var loc = GetLocation(actor);
         return new Main(
             GetActorLabel(actor),
+            actor.Name,
             ClassName(actor),
             loc.X, loc.Y, loc.Z);
     }
@@ -557,6 +571,7 @@ public static class LayerExtractor
         }
         return new Cluster(
             GetActorLabel(actor),
+            actor.Name,
             ClassName(actor),
             sphereRadius,
             loc.X, loc.Y, loc.Z,

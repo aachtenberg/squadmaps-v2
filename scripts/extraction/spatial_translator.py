@@ -175,38 +175,86 @@ def _normalize_cluster_key(label: str) -> str:
     return _strip_ue_suffix(label or '')
 
 
-def _build_lane_pointsorder(links: list[dict]) -> list[str]:
+def _build_lane_pointsorder(links: list[dict], resolve=None) -> list[str]:
     """
     Walk a lane's links to produce an ordered list of node names.
     Each link has nodeA -> nodeB; assumes a linear chain so the result
-    is [main, c1, c2, ..., main]. Cluster names are normalized.
+    is [main, c1, c2, ..., main]. Cluster names are resolved via
+    `resolve` (actor-name → ActorLabel mapping) or fall back to
+    _normalize_cluster_key when no resolver is supplied.
     """
     if not links:
         return []
+    resolve = resolve or _normalize_cluster_key
     order: list[str] = []
     for link in links:
         a = link.get('nodeA')
         b = link.get('nodeB')
         if not order and a:
-            order.append(_normalize_cluster_key(a))
+            order.append(resolve(a))
         if b:
-            order.append(_normalize_cluster_key(b))
+            order.append(resolve(b))
     return order
 
 
-def _build_lane_objects(lane_graph: dict) -> dict:
+def _build_actor_to_label_map(clusters: list[dict], mains: list[dict] | None = None) -> dict[str, str]:
+    """
+    Build a mapping from a UE actor name to its dict-key form (ActorLabel,
+    minus spaces for mains).
+
+    For most layers Squad's level designers used the same string for
+    actor.Name and ActorLabel, so this map is identity for those entries.
+    For Al Basrah RAAS v3 (and similar) the actors are named
+    "01W-..".."05W-..._1" while the ActorLabels are "A1-..".."A7-..", AND
+    the team-2 main is ActorLabel="Z-Team2 Main" / Name="100-Team2 Main".
+    The SQRAASLaneInitializer's FPackageIndex refs carry the actor name,
+    so without this map the lane node refs don't match the cluster /
+    main dict keys.
+    """
+    m: dict[str, str] = {}
+    for c in clusters or []:
+        an = c.get('actorName')
+        ol = c.get('objectName')
+        if an and ol:
+            m[an] = ol
+    for main in mains or []:
+        an = main.get('actorName')
+        ol = main.get('objectName')
+        if an and ol:
+            # Mains use _normalize_main_key (space-stripping) as their dict key,
+            # so map both sides through it.
+            m[(an or '').replace(' ', '')] = (ol or '').replace(' ', '')
+    return m
+
+
+def _build_lane_objects(lane_graph: dict, actor_to_label: dict[str, str] | None = None) -> dict:
     """
     Convert a CUE4Parse laneGraph dict into the site capturePoints.lanes shape:
         { links: [...], listOfLanes: [...], laneObjects: {name: {...}} }
 
     Disambiguates duplicate lane names by appending _2, _3, etc. (this fixes
     the Manicouagan_RAAS_v2 bug where the dict-keyed structure collapsed two Echo lanes into one).
+
+    actor_to_label resolves lane node refs (which carry UE actor names) to
+    the cluster dict keys (which carry ActorLabels) — without that mapping,
+    Al-Basrah-style layers where the two diverge produce lanes whose
+    pointsOrder references entities that aren't in the objectives dict.
     """
     if not lane_graph:
         return {}
     cue_lanes = lane_graph.get('lanes') or []
     if not cue_lanes:
         return {}
+    actor_to_label = actor_to_label or {}
+
+    def _resolve_node(raw: str) -> str:
+        """actor-name → ActorLabel if mapped, else strip UE _N suffix."""
+        if not raw:
+            return ''
+        # Mains pass through unchanged (they have their own naming).
+        if raw in actor_to_label:
+            return actor_to_label[raw]
+        return _normalize_cluster_key(raw)
 
     list_of_lanes: list[str] = []
     lane_objects: dict[str, dict] = {}
@@ -224,7 +272,7 @@ def _build_lane_objects(lane_graph: dict) -> dict:
             unique_name = original
 
         cue_links = cue_lane.get('links') or []
-        points_order = _build_lane_pointsorder(cue_links)
+        points_order = _build_lane_pointsorder(cue_links, _resolve_node)
 
         # Identify mains in the lane
         mains_in_lane = [p for p in points_order if 'Main' in p]
@@ -234,8 +282,8 @@ def _build_lane_objects(lane_graph: dict) -> dict:
             'laneLinks': [
                 {
                     'name': f'Link_{unique_name}_{i}',
-                    'nodeA': _normalize_cluster_key(link.get('nodeA') or ''),
-                    'nodeB': _normalize_cluster_key(link.get('nodeB') or ''),
+                    'nodeA': _resolve_node(link.get('nodeA') or ''),
+                    'nodeB': _resolve_node(link.get('nodeB') or ''),
                 }
                 for i, link in enumerate(cue_links)
             ],
@@ -251,8 +299,8 @@ def _build_lane_objects(lane_graph: dict) -> dict:
         for i, link in enumerate(cue_links):
             all_links.append({
                 'name': f'Link_{unique_name}_{i}',
-                'nodeA': _normalize_cluster_key(link.get('nodeA') or ''),
-                'nodeB': _normalize_cluster_key(link.get('nodeB') or ''),
+                'nodeA': _resolve_node(link.get('nodeA') or ''),
+                'nodeB': _resolve_node(link.get('nodeB') or ''),
             })
 
     return {
@@ -388,8 +436,14 @@ def _build_capture_points(spatial: dict, gamemode: str) -> dict:
     """Build the capturePoints sub-object."""
     cp_type = _gamemode_to_cp_type(gamemode)
 
-    # Lanes (RAAS / Invasion)
-    lanes = _build_lane_objects(spatial.get('laneGraph') or {})
+    # Lanes (RAAS / Invasion). Pass the actor-name → ActorLabel mapping so
+    # layers like Al Basrah RAAS v3 — where the SDK names the lane node
+    # actors differently from their editor labels — resolve correctly.
+    actor_to_label = _build_actor_to_label_map(
+        spatial.get('clusters') or [],
+        spatial.get('mains') or [],
+    )
+    lanes = _build_lane_objects(spatial.get('laneGraph') or {}, actor_to_label)
 
     # Points order (AAS — no lane graph)
     if not lanes and (spatial.get('orphanCaptureZones') or []):

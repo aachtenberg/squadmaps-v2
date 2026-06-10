@@ -3824,16 +3824,18 @@
     return L.divIcon({
       className: '',
       html: `<div class="mortar-marker" title="${weapon.displayName}">
-        <svg viewBox="0 0 26 26" width="26" height="26">
-          <circle class="reticle-ring" cx="13" cy="13" r="10"/>
-          <line class="reticle-tick" x1="13" y1="1" x2="13" y2="6"/>
-          <line class="reticle-tick" x1="13" y1="20" x2="13" y2="25"/>
-          <line class="reticle-tick" x1="1" y1="13" x2="6" y2="13"/>
-          <line class="reticle-tick" x1="20" y1="13" x2="25" y2="13"/>
-          <circle class="reticle-dot" cx="13" cy="13" r="1.5"/>
+        <svg viewBox="0 0 30 30" width="30" height="30">
+          <circle class="reticle-pulse" cx="15" cy="15" r="11"/>
+          <circle class="reticle-halo" cx="15" cy="15" r="11"/>
+          <circle class="reticle-ring" cx="15" cy="15" r="10"/>
+          <line class="reticle-tick" x1="15" y1="1" x2="15" y2="6"/>
+          <line class="reticle-tick" x1="15" y1="24" x2="15" y2="29"/>
+          <line class="reticle-tick" x1="1" y1="15" x2="6" y2="15"/>
+          <line class="reticle-tick" x1="24" y1="15" x2="29" y2="15"/>
+          <circle class="reticle-dot" cx="15" cy="15" r="1.6"/>
         </svg>
       </div>`,
-      iconSize: [26, 26], iconAnchor: [13, 13],
+      iconSize: [30, 30], iconAnchor: [15, 15],
     });
   }
 
@@ -3859,7 +3861,11 @@
     let elev = '<span class="mortar-oor-tt">OOR</span>';
     if (sol.belowMin) elev = '<span class="mortar-oor-tt">MIN</span>';
     else if (branch) elev = formatElevation(branch.rad, sol.unit);
-    return `${dist}<br>${bear}<br>${elev}`;
+    // Range/bearing are reference; elevation is the value the player dials in,
+    // so it's emphasized in the reticle gold to tie back to the weapon marker.
+    return `<span class="ff-row ff-range">${dist}</span>`
+      + `<span class="ff-row ff-bearing">${bear}</span>`
+      + `<span class="ff-row ff-elev">${elev}</span>`;
   }
 
   function rebuildWeaponSelect() {

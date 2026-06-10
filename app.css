@@ -2021,8 +2021,7 @@ html, body {
 }
 
 /* ---- Mortar / Indirect-fire tool ---- */
-/* Plain black dagger pin; the tip of the blade is the weapon position
-   (iconAnchor is at the bottom of the 16x32 svg). */
+/* Gold reticle, center-anchored over the weapon position (30x30 svg). */
 .mortar-marker {
   width: 30px;
   height: 30px;
@@ -2030,6 +2029,11 @@ html, body {
   cursor: grab;
   /* Gold glow + hard drop-shadow so the weapon reads clearly over any tile. */
   filter: drop-shadow(0 0 5px rgba(255, 215, 112, 0.65)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.9));
+}
+
+/* The pulse ring scales past the viewBox; SVG roots clip by default. */
+.mortar-marker svg {
+  overflow: visible;
 }
 
 .mortar-marker:active {

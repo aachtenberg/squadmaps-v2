@@ -2024,11 +2024,12 @@ html, body {
 /* Plain black dagger pin; the tip of the blade is the weapon position
    (iconAnchor is at the bottom of the 16x32 svg). */
 .mortar-marker {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   position: relative;
   cursor: grab;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.9));
+  /* Gold glow + hard drop-shadow so the weapon reads clearly over any tile. */
+  filter: drop-shadow(0 0 5px rgba(255, 215, 112, 0.65)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.9));
 }
 
 .mortar-marker:active {
@@ -2046,6 +2047,31 @@ html, body {
 .mortar-marker .reticle-dot {
   fill: #ffd770;
   stroke: none;
+}
+
+/* Soft dark backing disc so the gold reticle stays legible over light tiles. */
+.mortar-marker .reticle-halo {
+  fill: rgba(19, 19, 16, 0.55);
+  stroke: none;
+}
+
+/* Slow expanding pulse ring — draws the eye to the placed weapon. */
+.mortar-marker .reticle-pulse {
+  fill: none;
+  stroke: #ffd770;
+  stroke-width: 1.5;
+  transform-origin: 15px 15px;
+  animation: reticle-pulse 2.2s ease-out infinite;
+}
+
+@keyframes reticle-pulse {
+  0%   { transform: scale(0.7); opacity: 0.7; }
+  70%  { transform: scale(1.7); opacity: 0; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mortar-marker .reticle-pulse { animation: none; opacity: 0; }
 }
 
 /* Range circle can be right-click-toggled off without losing the mortar */
@@ -2084,29 +2110,45 @@ html, body {
   stroke: rgba(200, 200, 200, 0.7);
 }
 
-/* Bold, large, high-contrast tooltip — readable without zooming in.
-   Transparent background so the text floats directly above the pin. */
+/* Compact firing-solution readout — a small HUD chip to match the tactical
+   panels, using the app's Anton display font instead of generic Impact. */
 .target-pin-tooltip {
-  background: transparent !important;
-  border: none !important;
-  padding: 0 !important;
-  box-shadow: none !important;
-  color: #ffffff !important;
-  font-family: 'Oswald', 'Impact', 'Arial Black', var(--font) !important;
-  font-size: 18px !important;
-  font-weight: 900 !important;
-  line-height: 1.05 !important;
-  letter-spacing: 0.5px !important;
+  background: rgba(19, 19, 16, 0.82) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 4px !important;
+  padding: 3px 7px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6) !important;
+  color: var(--text-primary) !important;
+  font-family: var(--font-display), 'Arial Black', sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 1.18 !important;
+  letter-spacing: 0.6px !important;
   text-align: center !important;
-  text-shadow:
-    -1px -1px 0 #000,
-     1px -1px 0 #000,
-    -1px  1px 0 #000,
-     1px  1px 0 #000,
-     0 0 4px rgba(0, 0, 0, 0.95),
-     0 2px 6px rgba(0, 0, 0, 0.8) !important;
   white-space: nowrap !important;
   pointer-events: none !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9) !important;
+}
+
+.target-pin-tooltip .ff-row {
+  display: block;
+}
+
+/* Range/bearing are reference, elevation is the dial-in value — gold ties it
+   to the weapon reticle and makes the actionable number jump out. */
+.target-pin-tooltip .ff-range {
+  color: var(--text-secondary) !important;
+  font-size: 12px !important;
+}
+
+.target-pin-tooltip .ff-bearing {
+  color: var(--text-primary) !important;
+}
+
+.target-pin-tooltip .ff-elev {
+  color: #ffd770 !important;
+  font-size: 16px !important;
+  text-shadow: 0 0 6px rgba(255, 215, 112, 0.45), 0 1px 2px rgba(0, 0, 0, 0.9) !important;
 }
 
 .target-pin-tooltip::before {

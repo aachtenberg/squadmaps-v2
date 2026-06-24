@@ -516,6 +516,114 @@
     }
   }
 
+  // ---- Search command palette ( / or Ctrl-K ) ----
+  function buildSearchEntries() {
+    const entries = [];
+    for (const mapId of Object.keys(mapGroups)) {
+      for (const l of mapGroups[mapId]) {
+        entries.push({
+          mapId,
+          rawName: l.rawName,
+          name: l.Name,
+          gm: GAMEMODE_LABELS[l.gamemode] || l.gamemode,
+          thumb: l.minimapTexture,
+          hay: `${l.mapName} ${l.Name} ${mapId} ${l.gamemode}`.toLowerCase(),
+        });
+      }
+    }
+    return entries;
+  }
+
+  function setupSearchPalette() {
+    const palette = document.getElementById('search-palette');
+    const input = document.getElementById('palette-input');
+    const resultsEl = document.getElementById('palette-results');
+    const trigger = document.getElementById('search-trigger');
+    if (!palette || !input || !resultsEl) return;
+
+    let entries = [];
+    let shown = [];
+    let activeIdx = 0;
+
+    const isOpen = () => !palette.classList.contains('hidden');
+
+    function renderResults(q) {
+      const query = q.trim().toLowerCase();
+      shown = query
+        ? entries.filter((e) => e.hay.includes(query)).slice(0, 25)
+        : entries.slice(0, 8);
+      activeIdx = 0;
+      if (!shown.length) {
+        resultsEl.innerHTML = `<li class="palette-empty">No maps or layers match “${escapeHtml(q.trim())}”.</li>`;
+        return;
+      }
+      resultsEl.innerHTML = shown.map((e, i) => `
+        <li class="palette-item${i === 0 ? ' active' : ''}" role="option" data-idx="${i}">
+          <img class="palette-item-thumb" src="assets/thumbnails/${e.thumb}.webp" alt=""
+               onerror="this.style.visibility='hidden'">
+          <span class="palette-item-name">${escapeHtml(e.name)}</span>
+          <span class="palette-item-mode gamemode-tag">${escapeHtml(e.gm)}</span>
+        </li>`).join('');
+    }
+
+    function setActive(i) {
+      const items = resultsEl.querySelectorAll('.palette-item');
+      if (!items.length) return;
+      activeIdx = (i + items.length) % items.length;
+      items.forEach((el, idx) => el.classList.toggle('active', idx === activeIdx));
+      items[activeIdx].scrollIntoView({ block: 'nearest' });
+    }
+
+    function choose(i) {
+      const e = shown[i];
+      if (!e) return;
+      close();
+      openMap(e.mapId, e.rawName);
+    }
+
+    function open() {
+      entries = buildSearchEntries();
+      palette.classList.remove('hidden');
+      input.value = '';
+      renderResults('');
+      requestAnimationFrame(() => input.focus());
+    }
+
+    function close() {
+      palette.classList.add('hidden');
+    }
+
+    input.addEventListener('input', () => renderResults(input.value));
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); setActive(activeIdx + 1); }
+      else if (ev.key === 'ArrowUp') { ev.preventDefault(); setActive(activeIdx - 1); }
+      else if (ev.key === 'Enter') { ev.preventDefault(); choose(activeIdx); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); close(); }
+    });
+    resultsEl.addEventListener('click', (ev) => {
+      const li = ev.target.closest('.palette-item');
+      if (li) choose(Number(li.dataset.idx));
+    });
+    palette.addEventListener('mousedown', (ev) => {
+      if (ev.target.dataset.close || ev.target.classList.contains('search-palette-scrim')) close();
+    });
+    if (trigger) trigger.addEventListener('click', open);
+
+    document.addEventListener('keydown', (ev) => {
+      if ((ev.key === 'k' || ev.key === 'K') && (ev.metaKey || ev.ctrlKey)) {
+        ev.preventDefault();
+        isOpen() ? close() : open();
+        return;
+      }
+      const tag = (ev.target.tagName || '').toLowerCase();
+      const typing = tag === 'input' || tag === 'select' || tag === 'textarea' || ev.target.isContentEditable;
+      if (ev.key === '/' && !typing && !isOpen()) {
+        ev.preventDefault();
+        open();
+      }
+    });
+  }
+
   // ---- Open Map ----
   function openMap(mapId, layerRaw) {
     const layers = mapGroups[mapId];
@@ -4240,14 +4348,7 @@
     });
 
     // Search
-    const searchInput = document.getElementById('search-input');
-    let searchTimeout;
-    searchInput.addEventListener('input', () => {
-      clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(() => {
-        renderGrid(searchInput.value.trim());
-      }, 200);
-    });
+    setupSearchPalette();
 
     // Language selector
     document.getElementById('lang-select').addEventListener('change', (e) => {

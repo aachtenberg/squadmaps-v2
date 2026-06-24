@@ -7,8 +7,8 @@
   <meta name="description" content="Interactive Squad v10 map viewer with all layers, factions, vehicles, objectives, and mortar calculator.">
   <link rel="icon" href="squadmaps-32.png" type="image/png" sizes="32x32">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app.css?v=52">
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&family=Saira+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css?v=53">
 </head>
 <body>
   <!-- Header -->
@@ -41,12 +41,19 @@
     <!-- Map View (single map with Leaflet) -->
     <div id="map-view" class="map-view hidden">
       <div class="map-view-header">
-        <button id="back-btn" class="back-btn">&larr; Back</button>
-        <div class="layer-info">
-          <h2 id="layer-name"></h2>
-          <div class="layer-meta" id="layer-meta"></div>
+        <div class="map-view-topbar">
+          <button id="back-btn" class="back-btn">&larr; Back</button>
+          <div class="layer-info">
+            <h2 id="layer-name"></h2>
+            <div class="layer-meta" id="layer-meta"></div>
+          </div>
+          <div id="header-factions" class="header-factions"></div>
+          <button id="strategy-drawer-toggle" class="strategy-drawer-toggle" aria-expanded="false" aria-controls="strategy-drawer">Strategy</button>
         </div>
-        <button id="strategy-drawer-toggle" class="strategy-drawer-toggle" aria-expanded="false" aria-controls="strategy-drawer">Strategy</button>
+        <nav class="map-view-nav" role="tablist" aria-label="Map panel sections">
+          <button class="nav-tab active" data-tab="layers" role="tab">Layers</button>
+          <button class="nav-tab" data-tab="info" role="tab">Info</button>
+        </nav>
       </div>
 
       <div class="map-view-body">
@@ -56,12 +63,8 @@
           <span class="left-sidebar-tab-chevron" aria-hidden="true"></span>
           <span class="left-sidebar-tab-label">Layers</span>
         </button>
-        <!-- Left sidebar: tabbed (Layers / Info) -->
+        <!-- Left sidebar: panes switched by the nav tabs in the title bar -->
         <aside id="left-sidebar" class="sidebar left-sidebar">
-          <div class="sidebar-tabs">
-            <button class="sidebar-tab active" data-tab="layers">Layers</button>
-            <button class="sidebar-tab" data-tab="info">Info</button>
-          </div>
           <div class="sidebar-tab-pane active" id="tab-layers">
             <div id="layer-list" class="layer-list"></div>
           </div>
@@ -84,11 +87,10 @@
             </div>
             <div id="strategy-drawer-content" class="strategy-drawer-content"></div>
           </aside>
-          <!-- Top info bar -->
+          <!-- Top info bar (match/lane info only — faction pickers live in
+               the title bar now) -->
           <div id="top-panel" class="top-panel">
-            <div class="team-panel team1-panel" id="team1-panel"></div>
             <div class="match-info" id="match-info"></div>
-            <div class="team-panel team2-panel" id="team2-panel"></div>
           </div>
           <!-- Right-click context menu (GIS-style tool picker) -->
           <div id="map-context-menu" class="map-context-menu hidden" role="menu">
@@ -146,6 +148,6 @@
   <script src="data/translations.js"></script>
   <script src="data/strategy_guides.js"></script>
   <script src="data/water_hazards.js"></script>
-  <script src="app.js?v=63"></script>
+  <script src="app.js?v=64"></script>
 </body>
 </html>

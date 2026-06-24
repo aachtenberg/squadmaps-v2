@@ -31,8 +31,9 @@
   --header-height: 52px;
   --sidebar-width: 280px;
   --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-cond: 'Rajdhani', 'Oswald', 'Inter', sans-serif;
-  --font-display: 'Anton', sans-serif;
+  /* Industrial condensed caps — closest free match to the Black Ops Cold War UI type */
+  --font-cond: 'Saira Condensed', 'Oswald', 'Inter', sans-serif;
+  --font-display: 'Saira Condensed', 'Oswald', sans-serif;
 }
 
 *, *::before, *::after {
@@ -238,13 +239,141 @@ html, body {
 
 .map-view-header {
   display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Row 1: back + map name + faction pickers + strategy */
+.map-view-topbar {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 8px 16px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
   min-height: 44px;
+}
+
+/* Row 2: COD-style section nav band (Layers / Info) */
+.map-view-nav {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 0 12px;
+  border-top: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.nav-tab {
+  position: relative;
+  padding: 9px 18px 8px;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-family: var(--font-cond);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.nav-tab:hover {
+  color: var(--text-secondary);
+}
+
+.nav-tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+  text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.55);
+}
+
+/* Faction pickers in the title bar */
+.header-factions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.hdr-faction {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 8px 3px 6px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--text-muted);
+  border-radius: 2px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.hdr-faction.team1 {
+  border-left-color: var(--blufor);
+}
+
+.hdr-faction.team2 {
+  border-left-color: var(--redfor);
+}
+
+.hdr-faction.active {
+  border-color: var(--accent);
+  border-left-color: var(--accent);
+  box-shadow: var(--glow);
+}
+
+.hdr-faction-flag {
+  width: 26px;
+  height: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.hdr-faction .team-select {
+  max-width: 190px;
+  background: transparent;
+  color: var(--text-primary);
+  border: none;
+  font-family: var(--font-cond);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 2px 4px;
+  cursor: pointer;
+  outline: none;
+}
+
+.hdr-faction .team-name {
+  font-family: var(--font-cond);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.hdr-faction .team-select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  text-transform: none;
+}
+
+.hdr-faction-tickets {
+  flex-shrink: 0;
+  min-width: 30px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent);
+  font-family: var(--font-cond);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
 }
 
 .layer-info {
@@ -2424,9 +2553,32 @@ html, body {
 }
 
 @media (max-width: 768px) {
-  .map-view-header {
-    gap: 10px;
+  .map-view-topbar {
+    flex-wrap: wrap;
+    gap: 8px 10px;
     padding: 8px 10px;
+  }
+
+  /* Faction pickers drop onto their own line and share the width */
+  .header-factions {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+
+  .hdr-faction {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .hdr-faction .team-select {
+    max-width: none;
+    width: 100%;
+  }
+
+  .map-view-nav {
+    padding: 0 6px;
   }
 
   .strategy-drawer-toggle {

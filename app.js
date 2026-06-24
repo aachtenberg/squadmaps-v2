@@ -501,18 +501,14 @@
 
       const thumbSrc = `assets/thumbnails/${first.minimapTexture}.webp`;
 
-      // Count gamemodes
-      const modes = [...new Set(layers.map(l => l.gamemode))];
-
+      // Map name overlays the thumbnail (bottom-left); layer count sits in
+      // the bottom-right corner. No gamemode list, no solid footer bar.
       card.innerHTML = `
         <img class="map-card-img" src="${thumbSrc}" alt="${first.mapName}" loading="lazy"
              onerror="this.src='assets/maps/single/${first.minimapTexture}.webp'">
-        <div class="map-card-body">
-          <div class="map-card-title">${escapeHtml(first.mapName)}</div>
-          <div class="map-card-meta">
-            <span>${layers.length} layers</span>
-            <span>${modes.map(m => GAMEMODE_LABELS[m] || m).join(', ')}</span>
-          </div>
+        <div class="map-card-overlay">
+          <span class="map-card-title">${escapeHtml(first.mapName)}</span>
+          <span class="map-card-count">${layers.length} layers</span>
         </div>`;
 
       card.addEventListener('click', () => openMap(mapId));

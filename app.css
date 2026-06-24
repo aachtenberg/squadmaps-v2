@@ -3,24 +3,35 @@
    ==================================================================== */
 
 :root {
-  --bg-primary: #131313;
-  --bg-secondary: #1a1a1a;
-  --bg-card: #222218;
-  --bg-card-hover: #2c2c22;
-  --bg-sidebar: #1a1a16;
-  --bg-input: #2a2a22;
-  --text-primary: #e5e4e0;
-  --text-secondary: #a0a090;
-  --text-muted: #70705e;
-  --accent: #6b8e23;
-  --accent-hover: #556b2f;
-  --blufor: #4a7a3a;
-  --redfor: #8b4513;
-  --indfor: #6b8e23;
-  --border: #3a3a2e;
+  /* Tactical "Black Ops" cyan/green theme — cold slate base, cyan-green glow */
+  --bg-primary: #07090a;
+  --bg-secondary: #0b1113;
+  --bg-card: #0f181a;
+  --bg-card-hover: #16262a;
+  --bg-sidebar: #0a1012;
+  --bg-input: #11201f;
+  --text-primary: #d8e8e3;
+  --text-secondary: #88a39c;
+  --text-muted: #586d68;
+  --accent: #25e0c0;
+  --accent-rgb: 37, 224, 192;
+  --accent-hover: #18bda0;
+  --accent-dim: #0f8f7a;
+  --blufor: #2f9e6f;
+  --redfor: #c2562a;
+  --indfor: #25e0c0;
+  --border: #1b2a2b;
+  --border-strong: #28403f;
+  --hud-line: rgba(37, 224, 192, 0.5);
+  --glow: 0 0 0 1px rgba(37, 224, 192, 0.25), 0 0 14px rgba(37, 224, 192, 0.28);
+  /* Faint CRT scanlines for chrome surfaces */
+  --scan: repeating-linear-gradient(0deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px, rgba(0,0,0,0.16) 3px);
+  /* Angled "clipped corner" shape for tactical tags/buttons */
+  --clip-tag: polygon(0 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%);
   --header-height: 52px;
   --sidebar-width: 280px;
   --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-cond: 'Rajdhani', 'Oswald', 'Inter', sans-serif;
   --font-display: 'Anton', sans-serif;
 }
 
@@ -75,7 +86,7 @@ html, body {
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 4px;
-  background: #556b2f;
+  background: #18bda0;
   color: #e5e4e0;
 }
 
@@ -281,9 +292,9 @@ html, body {
 }
 
 .left-sidebar-tab:hover {
-  background: rgba(107, 142, 35, 0.16);
-  border-color: rgba(107, 142, 35, 0.34);
-  color: #dce7bb;
+  background: rgba(37, 224, 192, 0.16);
+  border-color: rgba(37, 224, 192, 0.34);
+  color: #bdeee4;
 }
 
 .left-sidebar-tab-chevron {
@@ -310,13 +321,13 @@ html, body {
 }
 
 .left-sidebar-tab:hover .left-sidebar-tab-label {
-  color: #dce7bb;
+  color: #bdeee4;
 }
 
 .strategy-drawer-toggle {
-  background: rgba(107, 142, 35, 0.18);
-  border: 1px solid rgba(107, 142, 35, 0.34);
-  color: #dce7bb;
+  background: rgba(37, 224, 192, 0.18);
+  border: 1px solid rgba(37, 224, 192, 0.34);
+  color: #bdeee4;
   padding: 7px 12px;
   border-radius: 8px;
   cursor: pointer;
@@ -328,8 +339,8 @@ html, body {
 }
 
 .strategy-drawer-toggle:hover {
-  background: rgba(107, 142, 35, 0.26);
-  border-color: rgba(107, 142, 35, 0.44);
+  background: rgba(37, 224, 192, 0.26);
+  border-color: rgba(37, 224, 192, 0.44);
 }
 
 .strategy-drawer-toggle[aria-expanded="true"] {
@@ -1172,9 +1183,9 @@ html, body {
 }
 
 .fit-badge.strong {
-  background: rgba(107, 142, 35, 0.22);
-  border-color: rgba(107, 142, 35, 0.35);
-  color: #dce7bb;
+  background: rgba(37, 224, 192, 0.22);
+  border-color: rgba(37, 224, 192, 0.35);
+  color: #bdeee4;
 }
 
 .fit-badge.good {
@@ -1246,16 +1257,16 @@ html, body {
 }
 
 .obj-marker.active-main {
-  box-shadow: 0 0 18px 6px rgba(107, 142, 35, 0.9);
-  border-color: #6b8e23;
+  box-shadow: 0 0 18px 6px rgba(37, 224, 192, 0.9);
+  border-color: #25e0c0;
   border-width: 3px;
   font-size: 16px;
   transform: scale(1.08);
 }
 
 .obj-marker.captured {
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18), 0 0 10px 3px rgba(107, 142, 35, 0.7);
-  border-color: #6b8e23;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18), 0 0 10px 3px rgba(37, 224, 192, 0.7);
+  border-color: #25e0c0;
 }
 
 .obj-marker.captured::before {
@@ -1269,8 +1280,8 @@ html, body {
 
 .obj-marker.last-captured {
   cursor: pointer;
-  border-color: #dbe98b;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.24), 0 0 18px 7px rgba(107, 142, 35, 0.52), 0 4px 14px rgba(0,0,0,0.42);
+  border-color: #a9f2e1;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.24), 0 0 18px 7px rgba(37, 224, 192, 0.52), 0 4px 14px rgba(0,0,0,0.42);
   animation: selected-pop 1.1s ease-in-out infinite;
   z-index: 2;
 }
@@ -1280,8 +1291,8 @@ html, body {
   position: absolute;
   inset: -8px;
   border-radius: 50%;
-  border: 2px solid rgba(219, 233, 139, 0.9);
-  box-shadow: 0 0 16px rgba(178, 206, 92, 0.35);
+  border: 2px solid rgba(169, 242, 225, 0.9);
+  box-shadow: 0 0 16px rgba(120, 230, 200, 0.35);
   animation: selected-ring 1.35s ease-out infinite;
 }
 
@@ -1366,7 +1377,7 @@ html, body {
 }
 
 .lane-btn:hover {
-  background: rgba(107, 142, 35, 0.2);
+  background: rgba(37, 224, 192, 0.2);
   color: var(--text-primary);
   border-color: var(--accent);
 }
@@ -1446,7 +1457,7 @@ html, body {
   margin-top: 6px;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(107, 142, 35, 0.18);
+  border: 1px solid rgba(37, 224, 192, 0.18);
   background: linear-gradient(180deg, rgba(24, 25, 20, 0.95), rgba(17, 18, 15, 0.95));
   display: flex;
   flex-direction: column;
@@ -1503,7 +1514,7 @@ html, body {
   justify-content: center;
   gap: 8px;
   padding: 4px 6px;
-  border: 1px solid rgba(107, 142, 35, 0.22);
+  border: 1px solid rgba(37, 224, 192, 0.22);
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(23, 23, 19, 0.94), rgba(30, 35, 24, 0.88));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 8px 18px rgba(0, 0, 0, 0.22);
@@ -1640,8 +1651,8 @@ html, body {
   height: 22px;
   padding: 0 7px;
   border-radius: 999px;
-  background: rgba(107, 142, 35, 0.18);
-  border: 1px solid rgba(107, 142, 35, 0.4);
+  background: rgba(37, 224, 192, 0.18);
+  border: 1px solid rgba(37, 224, 192, 0.4);
   color: #d8dfc2;
   display: inline-flex;
   align-items: center;
@@ -1659,7 +1670,7 @@ html, body {
 
 .team-panel.team-active {
   border-color: var(--accent);
-  box-shadow: 0 0 8px rgba(107, 142, 35, 0.3);
+  box-shadow: 0 0 8px rgba(37, 224, 192, 0.3);
 }
 
 /* Objective name labels */
@@ -1721,7 +1732,7 @@ html, body {
 
 .hex-tooltip {
   background: rgba(0, 0, 0, 0.85) !important;
-  border: 1px solid rgba(107, 142, 35, 0.3) !important;
+  border: 1px solid rgba(37, 224, 192, 0.3) !important;
   border-radius: 4px !important;
   padding: 4px 8px !important;
   font-size: 11px !important;
@@ -1754,12 +1765,12 @@ html, body {
 
 .tc-detail.tc-t1 {
   color: #8fbf6a;
-  border-color: rgba(74, 122, 58, 0.4);
+  border-color: rgba(47, 158, 111, 0.4);
 }
 
 .tc-detail.tc-t2 {
   color: #d4956a;
-  border-color: rgba(139, 69, 19, 0.4);
+  border-color: rgba(194, 86, 42, 0.4);
 }
 
 .tc-detail.tc-neutral {
@@ -1990,7 +2001,7 @@ html, body {
 .hab-marker.hab-blufor {
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.8),
-    0 0 0 3px rgba(74, 122, 58, 0.7),
+    0 0 0 3px rgba(47, 158, 111, 0.7),
     0 0 14px rgba(255, 215, 112, 0.85),
     0 0 4px rgba(255, 215, 112, 1),
     0 2px 8px rgba(0, 0, 0, 0.85);
@@ -1999,7 +2010,7 @@ html, body {
 .hab-marker.hab-redfor {
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.8),
-    0 0 0 3px rgba(139, 69, 19, 0.7),
+    0 0 0 3px rgba(194, 86, 42, 0.7),
     0 0 14px rgba(255, 215, 112, 0.85),
     0 0 4px rgba(255, 215, 112, 1),
     0 2px 8px rgba(0, 0, 0, 0.85);
@@ -2467,4 +2478,198 @@ html, body {
     flex-direction: column;
     width: 90%;
   }
+}
+
+/* ====================================================================
+   TACTICAL HUD THEME — Black Ops cyan/green overlay
+   Layered on top of the token retheme above: condensed uppercase
+   typography, sharp/angular edges, corner brackets, scanlines, glow.
+   ==================================================================== */
+
+/* Subtle depth in the base canvas */
+body {
+  background: radial-gradient(125% 90% at 50% -10%, #0d1719 0%, var(--bg-primary) 68%);
+}
+
+/* Faint CRT scanlines over the flat chrome surfaces */
+#header,
+.map-view-header {
+  background: var(--scan), var(--bg-secondary);
+  border-bottom: 1px solid var(--border-strong);
+  box-shadow: 0 1px 0 rgba(var(--accent-rgb), 0.12);
+}
+
+.sidebar {
+  background: var(--scan), var(--bg-sidebar);
+}
+
+/* Condensed, uppercase tactical typography on the UI chrome */
+.header-left h1,
+.version-badge,
+.layer-info h2,
+.sidebar-tab,
+.back-btn,
+.strategy-drawer-toggle,
+.strategy-drawer-title,
+.mortar-panel-title,
+.map-card-title,
+.match-info .gamemode-label,
+.team-panel .team-name,
+.lane-btn,
+.phase-btn {
+  font-family: var(--font-cond);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.layer-info h2,
+.map-card-title,
+.strategy-drawer-title,
+.mortar-panel-title {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* Wordmark gets a cyan glow */
+.header-left h1 a {
+  text-shadow: 0 0 14px rgba(var(--accent-rgb), 0.45);
+}
+
+/* Sharpen the soft rounded chrome into hard tactical edges */
+.map-card,
+.team-panel,
+.match-info,
+.mortar-panel,
+.map-context-menu,
+#search-input,
+#lang-select,
+.weapon-select,
+.strategy-card,
+.strategy-team-card,
+.strategy-guide-card,
+.map-fit-card,
+.live-objective-summary,
+.lane-btn,
+.phase-btn {
+  border-radius: 2px;
+}
+
+/* Angular clipped corner + glow on the primary action buttons */
+.back-btn,
+.strategy-drawer-toggle {
+  clip-path: var(--clip-tag);
+  border-radius: 0;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.back-btn:hover,
+.strategy-drawer-toggle:hover {
+  box-shadow: var(--glow);
+}
+
+/* Tactical version tag */
+.version-badge {
+  background: rgba(var(--accent-rgb), 0.14);
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  color: var(--accent);
+  clip-path: var(--clip-tag);
+  border-radius: 0;
+  letter-spacing: 0.1em;
+}
+
+/* Powered "HUD top edge" + glow on the floating panels */
+.team-panel,
+.match-info,
+.mortar-panel {
+  border-top: 1px solid rgba(var(--accent-rgb), 0.35);
+}
+
+/* Targeting-bracket corners on the key floating surfaces and map cards */
+.team-panel,
+.match-info,
+.mortar-panel,
+.map-card {
+  position: relative;
+}
+
+.team-panel::before,
+.match-info::before,
+.mortar-panel::before,
+.map-card::before,
+.team-panel::after,
+.match-info::after,
+.mortar-panel::after,
+.map-card::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid rgba(var(--accent-rgb), 0.7);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.team-panel::before,
+.match-info::before,
+.mortar-panel::before,
+.map-card::before {
+  top: 4px;
+  left: 4px;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.team-panel::after,
+.match-info::after,
+.mortar-panel::after,
+.map-card::after {
+  right: 4px;
+  bottom: 4px;
+  border-left: 0;
+  border-top: 0;
+}
+
+/* Card hover reads as a "selected" HUD tile */
+.map-card:hover {
+  box-shadow: var(--glow);
+  border-color: rgba(var(--accent-rgb), 0.45);
+}
+
+/* Input focus glow */
+#search-input:focus,
+.weapon-select:focus,
+#lang-select:focus {
+  border-color: var(--accent);
+  box-shadow: var(--glow);
+  outline: none;
+}
+
+/* Selected sidebar tab gets an accent glow under the underline */
+.sidebar-tab.active {
+  text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.5);
+}
+
+/* Context-menu items light up cyan on hover (danger items stay red — they
+   have higher specificity and override this) */
+.mcm-item:hover:not(:disabled) {
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--accent);
+}
+
+.mcm-item:hover:not(:disabled) .mcm-icon {
+  color: var(--accent);
+}
+
+/* Cold left edge on the strategy drawer */
+.strategy-drawer {
+  background: linear-gradient(180deg, rgba(8, 14, 15, 0.97), rgba(5, 9, 10, 0.98));
+  border-left: 1px solid rgba(var(--accent-rgb), 0.3);
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5), inset 1px 0 0 rgba(var(--accent-rgb), 0.15);
+}
+
+/* Cooler map void behind the imagery */
+.leaflet-map,
+.leaflet-container {
+  background: #06090a;
 }

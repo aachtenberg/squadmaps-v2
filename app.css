@@ -2845,3 +2845,56 @@ body {
   border-left: 0;
   border-bottom: 0;
 }
+
+/* ---- Unify content text with the condensed COD type ----
+   The layer list, info panel, and strategy drawer were still using the Inter
+   body font, which read as a different typeface next to the condensed chrome.
+   Switch their content onto the condensed family and uppercase the prominent
+   titles/names (matching the Cold War playlist), while leaving body sentences
+   in sentence case for readability. */
+.layer-list,
+#detail-content,
+.strategy-drawer {
+  font-family: var(--font-cond);
+}
+
+/* Layer names — uppercase, like the COD playlist rows */
+.layer-item {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* Card/section titles read as labels — uppercase them too */
+.strategy-guide-title,
+.strategy-team-name,
+.detail-section h4 {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Condensed glyphs sit tighter — a hair of tracking keeps body text legible */
+.strategy-lead,
+.strategy-list,
+.strategy-kv-value,
+.strategy-team-subtitle,
+.strategy-chip,
+.strategy-watchouts li,
+.vehicle-item,
+.map-trait-chip,
+.map-fit-chip,
+.map-fit-warning,
+.team-fit-point {
+  letter-spacing: 0.015em;
+}
+
+/* Slightly larger so the narrower condensed face stays comfortable */
+.strategy-lead {
+  font-size: 14px;
+}
+
+.strategy-list,
+.strategy-kv-value {
+  font-size: 13px;
+}

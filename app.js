@@ -613,27 +613,14 @@
     const team1Options = getTeamOptions(layer, 'team1');
     const team2Options = getTeamOptions(layer, 'team2');
 
-    document.getElementById('team1-panel').innerHTML = `
-      <div class="team-header">
-        <img class="team-flag" src="assets/flags/flag_${team1FactionId}.png" alt="${team1FactionId}"
-             onerror="this.style.display='none'">
-        <div class="team-panel-body">
-          ${renderTeamSelector('team1', team1FactionId, team1Options)}
-          <div class="team-subtitle">${formatUnitTypes(team1Option?.types || [])}</div>
-        </div>
-      </div>
-      <div class="team-tickets">${t1.tickets || '?'} tickets</div>`;
-
-    document.getElementById('team2-panel').innerHTML = `
-      <div class="team-header">
-        <img class="team-flag" src="assets/flags/flag_${team2FactionId}.png" alt="${team2FactionId}"
-             onerror="this.style.display='none'">
-        <div class="team-panel-body">
-          ${renderTeamSelector('team2', team2FactionId, team2Options)}
-          <div class="team-subtitle">${formatUnitTypes(team2Option?.types || [])}</div>
-        </div>
-      </div>
-      <div class="team-tickets">${t2.tickets || '?'} tickets</div>`;
+    // Faction pickers live in the title bar (flag + faction dropdown +
+    // ticket count). The on-map team overlays were removed.
+    const factionsEl = document.getElementById('header-factions');
+    if (factionsEl) {
+      factionsEl.innerHTML =
+        renderHeaderFaction('team1', team1FactionId, team1Options, t1) +
+        renderHeaderFaction('team2', team2FactionId, team2Options, t2);
+    }
 
     const gm = GAMEMODE_LABELS[layer.gamemode] || layer.gamemode;
     const laneNames = getLaneNames(layer);
@@ -717,13 +704,9 @@
       </div>`;
     }
 
-    // Team toggle for perspective
-    const t1Active = activeTeam === 'team1' ? ' team-active' : '';
-    const t2Active = activeTeam === 'team2' ? ' team-active' : '';
-    const t1Panel = document.getElementById('team1-panel');
-    const t2Panel = document.getElementById('team2-panel');
-    t1Panel.classList.toggle('team-active', activeTeam === 'team1');
-    t2Panel.classList.toggle('team-active', activeTeam === 'team2');
+    // Highlight whichever faction's perspective is active in the title bar.
+    document.getElementById('hdr-faction-team1')?.classList.toggle('active', activeTeam === 'team1');
+    document.getElementById('hdr-faction-team2')?.classList.toggle('active', activeTeam === 'team2');
 
     const miEl = document.getElementById('match-info');
     const hasLanes = laneHtml.length > 0;
@@ -780,6 +763,16 @@
   function getSelectedTeamOption(layer, teamKey) {
     const options = getTeamOptions(layer, teamKey);
     return options.find((option) => option.factionID === selectedFactionIds[teamKey]) || options[0] || null;
+  }
+
+  // Title-bar faction control: flag + faction dropdown + ticket count.
+  function renderHeaderFaction(teamKey, factionId, options, teamConfig) {
+    return `<div class="hdr-faction ${teamKey}" id="hdr-faction-${teamKey}">
+      <img class="hdr-faction-flag" src="assets/flags/flag_${factionId}.png" alt="${factionId}"
+           onerror="this.style.display='none'">
+      ${renderTeamSelector(teamKey, factionId, options)}
+      <span class="hdr-faction-tickets" title="Starting tickets">${(teamConfig && teamConfig.tickets) || '?'}</span>
+    </div>`;
   }
 
   function renderTeamSelector(teamKey, factionId, options) {
@@ -4351,13 +4344,15 @@
     const strategyScrim = document.getElementById('strategy-drawer-scrim');
     if (strategyScrim) strategyScrim.addEventListener('click', () => setStrategyDrawerOpen(false));
 
-    // Sidebar tabs
-    document.querySelectorAll('.sidebar-tab').forEach((tab) => {
+    // Title-bar nav tabs — clicking swaps the left sidebar pane (and opens
+    // the sidebar if it was collapsed, so the selection is visible).
+    document.querySelectorAll('.nav-tab').forEach((tab) => {
       tab.addEventListener('click', () => {
-        document.querySelectorAll('.sidebar-tab').forEach((t) => t.classList.remove('active'));
+        document.querySelectorAll('.nav-tab').forEach((t) => t.classList.remove('active'));
         document.querySelectorAll('.sidebar-tab-pane').forEach((p) => p.classList.remove('active'));
         tab.classList.add('active');
         document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+        if (!leftSidebarOpen) setLeftSidebarOpen(true);
       });
     });
   }

@@ -17,6 +17,7 @@
   let currentMapId = null;
   let currentLayerIndex = 0;
   let selectedFactionIds = { team1: null, team2: null };
+  let selectedUnitKeys = { team1: null, team2: null }; // chosen doctrine/unit per team, e.g. 'USA_LO_AirAssault'
   let activeLane = null;       // e.g. 'Alpha', 'Bravo' – null means infer from captureSequence
   let captureSequence = [];    // array of normalized tokens captured so far, in order
   let activeTeam = null;       // 'team1' or 'team2' – which team's perspective
@@ -862,15 +863,57 @@
   function initializeTeamSelections(layer) {
     ['team1', 'team2'].forEach((teamKey) => {
       const options = getTeamOptions(layer, teamKey);
-      const defaultFactionId = extractFactionId(((layer.teamConfigs || {})[teamKey] || {}).defaultFactionUnit);
+      const teamConfig = (layer.teamConfigs || {})[teamKey] || {};
+      const defaultFactionId = extractFactionId(teamConfig.defaultFactionUnit);
       const preferred = options.find((option) => option.factionID === defaultFactionId) || options[0] || null;
       selectedFactionIds[teamKey] = preferred ? preferred.factionID : defaultFactionId;
+      selectedUnitKeys[teamKey] = (preferred && preferred.defaultUnit) || teamConfig.defaultFactionUnit || null;
     });
   }
 
   function getSelectedTeamOption(layer, teamKey) {
     const options = getTeamOptions(layer, teamKey);
     return options.find((option) => option.factionID === selectedFactionIds[teamKey]) || options[0] || null;
+  }
+
+  // A faction option exposes its default unit plus any alternate doctrines in
+  // `types[]` (which excludes the default). Combine them into one ordered,
+  // de-duplicated list with the default first.
+  function getUnitOptions(option) {
+    if (!option) return [];
+    const seen = new Set();
+    const out = [];
+    const push = (unit, unitType) => {
+      if (!unit || seen.has(unit)) return;
+      seen.add(unit);
+      out.push({ unit, unitType: unitType || unitTypeFromUnitKey(unit) });
+    };
+    push(option.defaultUnit, null);
+    (option.types || []).forEach((type) => push(type.unit, type.unitType));
+    return out;
+  }
+
+  function unitTypeFromUnitKey(unit) {
+    const source = String(unit || '');
+    return DOCTRINE_KEYS.find((key) => source.includes(key)) || '';
+  }
+
+  function unitDisplayLabel(unit, unitType) {
+    const key = unitType || unitTypeFromUnitKey(unit);
+    if (key) return ARCHETYPE_LABELS[key] || formatUnitType(key);
+    const parts = String(unit || '').split('_');
+    return formatUnitType(parts[parts.length - 1] || unit);
+  }
+
+  // Resolve the unit key currently selected for a team, falling back to the
+  // faction's default unit (or the raw team config) when nothing valid is set.
+  function getSelectedUnitKey(layer, teamKey) {
+    const option = getSelectedTeamOption(layer, teamKey);
+    const fallback = (option && option.defaultUnit)
+      || ((layer.teamConfigs || {})[teamKey] || {}).defaultFactionUnit || '';
+    const selected = selectedUnitKeys[teamKey];
+    if (selected && getUnitOptions(option).some((o) => o.unit === selected)) return selected;
+    return fallback;
   }
 
   // Title-bar faction control: flag + faction dropdown + ticket count.
@@ -904,6 +947,9 @@
       select.onchange = (event) => {
         const teamKey = event.target.dataset.team;
         selectedFactionIds[teamKey] = event.target.value;
+        // New faction → reset to its default doctrine.
+        const option = getSelectedTeamOption(layer, teamKey);
+        selectedUnitKeys[teamKey] = (option && option.defaultUnit) || null;
         renderTopPanel(layer);
         renderDetails(layer);
         redrawMarkers(layer);
@@ -991,20 +1037,6 @@
       .replace(/([a-z])([A-Z])/g, '$1 $2')
       .replace(/_/g, ' ')
       .trim();
-  }
-
-  function getDoctrineSet(selectedOption) {
-    const doctrines = new Set();
-    const addDoctrine = (value) => {
-      const source = String(value || '');
-      for (const key of DOCTRINE_KEYS) {
-        if (source.includes(key)) doctrines.add(key);
-      }
-    };
-
-    addDoctrine(selectedOption?.defaultUnit);
-    (selectedOption?.types || []).forEach((type) => addDoctrine(type.unitType || type.unit));
-    return doctrines;
   }
 
   function getObjectiveOrderNames(layer) {
@@ -2930,7 +2962,10 @@
   }
 
   function evaluateTeamMapFit(layer, teamKey, selectedOption, mapSuitability) {
-    const doctrines = getDoctrineSet(selectedOption);
+    // Score against the doctrine the user actually selected for this team.
+    const doctrines = new Set();
+    const selectedDoctrine = unitTypeFromUnitKey(getSelectedUnitKey(layer, teamKey));
+    if (selectedDoctrine) doctrines.add(selectedDoctrine);
     const capabilities = getCapabilityCounts(layer, teamKey);
     const helicopters = capabilities.Helicopters || 0;
     const heavyArmor = (capabilities['Heavy Armor'] || 0) + (capabilities.Armor || 0);
@@ -3279,17 +3314,19 @@
         ? 'Team 1 fits this map better on paper.'
         : 'Team 2 fits this map better on paper.';
 
-    const buildTeamCard = (label, option, config, fit) => {
+    const buildTeamCard = (label, option, config, fit, teamKey) => {
       const factionId = option?.factionID || extractFactionId(config.defaultFactionUnit);
       const factionName = FACTION_NAMES[factionId] || factionId || label;
       const detailPoints = fit.strengths.length ? fit.strengths : fit.risks;
       const detailTone = fit.strengths.length ? 'positive' : 'warning';
+      const unitKey = getSelectedUnitKey(layer, teamKey);
+      const doctrineLabel = unitKey ? unitDisplayLabel(unitKey) : 'No default unit listed';
       return `<div class="strategy-team-card">
         <div class="strategy-team-header">
           <div class="strategy-team-name">${escapeHtml(label)} · ${escapeHtml(factionName)}</div>
           <span class="fit-badge ${fit.tone}">${fit.label}</span>
         </div>
-        <div class="strategy-team-subtitle">Score ${fit.score}/100 · ${escapeHtml(option?.defaultUnit || config.defaultFactionUnit || 'No default unit listed')}</div>
+        <div class="strategy-team-subtitle">Score ${fit.score}/100 · ${escapeHtml(doctrineLabel)}</div>
         ${detailPoints.length ? `<div class="team-fit-points">${detailPoints.map((point) => `<div class="team-fit-point ${detailTone}">${escapeHtml(point)}</div>`).join('')}</div>` : ''}
       </div>`;
     };
@@ -3328,8 +3365,8 @@
       <section class="strategy-section">
         <div class="strategy-section-title">Team Read</div>
         <div class="strategy-team-grid">
-          ${buildTeamCard('Team 1', team1Option, team1Config, teamFits.team1)}
-          ${buildTeamCard('Team 2', team2Option, team2Config, teamFits.team2)}
+          ${buildTeamCard('Team 1', team1Option, team1Config, teamFits.team1, 'team1')}
+          ${buildTeamCard('Team 2', team2Option, team2Config, teamFits.team2, 'team2')}
         </div>
       </section>`;
   }
@@ -3381,12 +3418,12 @@
     // Team 1 info
     const t1 = tc.team1 || {};
     const team1Option = getSelectedTeamOption(layer, 'team1');
-    html += buildTeamDetail('Team 1', team1Option, t1, layer);
+    html += buildTeamDetail('Team 1', team1Option, t1, layer, 'team1');
 
     // Team 2 info
     const t2 = tc.team2 || {};
     const team2Option = getSelectedTeamOption(layer, 'team2');
-    html += buildTeamDetail('Team 2', team2Option, t2, layer);
+    html += buildTeamDetail('Team 2', team2Option, t2, layer, 'team2');
 
     // Deployables
     const deployables = assets.deployables || [];
@@ -3408,6 +3445,20 @@
     }
 
     content.innerHTML = html;
+    bindDoctrineSelects(layer);
+  }
+
+  // Doctrine picker in the team details panel: swaps the team's unit, which
+  // drives the vehicle list and the Strategy drawer's fit score.
+  function bindDoctrineSelects(layer) {
+    document.querySelectorAll('.doctrine-select').forEach((select) => {
+      select.onchange = (event) => {
+        const teamKey = event.target.dataset.team;
+        selectedUnitKeys[teamKey] = event.target.value;
+        renderDetails(layer);
+        renderStrategyDrawer(layer);
+      };
+    });
   }
 
   function getSpawnerTeamKey(spawner) {
@@ -3463,10 +3514,9 @@
       });
   }
 
-  function getUnitVehicleList(layer, selectedOption, teamConfig) {
+  function getUnitVehicleList(layer, unitKey) {
     const byUnit = layer.vehiclesByUnit || {};
-    const unitKey = selectedOption?.defaultUnit || teamConfig?.defaultFactionUnit || '';
-    return byUnit[unitKey] || [];
+    return byUnit[unitKey || ''] || [];
   }
 
   function formatRespawnTime(min) {
@@ -3475,15 +3525,33 @@
     return `${Math.round(min * 60)}s`;
   }
 
-  function buildTeamDetail(label, selectedOption, teamConfig, layer) {
+  function buildTeamDetail(label, selectedOption, teamConfig, layer, teamKey) {
     const factionId = selectedOption?.factionID || extractFactionId(teamConfig.defaultFactionUnit);
-    const vehicles = getUnitVehicleList(layer, selectedOption, teamConfig);
+    const unitKey = getSelectedUnitKey(layer, teamKey);
+    const vehicles = getUnitVehicleList(layer, unitKey);
     const tickets = teamConfig.tickets || '?';
 
     let html = `<div class="detail-section"><h4>${label} – ${FACTION_NAMES[factionId] || factionId}</h4>
       <div class="team-detail-header">
         <span class="team-detail-tickets">${tickets} tickets</span>
       </div>`;
+
+    const unitOptions = getUnitOptions(selectedOption);
+    if (unitOptions.length > 1) {
+      const optionMarkup = unitOptions.map((o) => {
+        const selected = o.unit === unitKey ? ' selected' : '';
+        return `<option value="${escapeHtml(o.unit)}"${selected}>${escapeHtml(unitDisplayLabel(o.unit, o.unitType))}</option>`;
+      }).join('');
+      html += `<div class="team-doctrine">
+        <label class="team-doctrine-label" for="doctrine-${teamKey}">Doctrine</label>
+        <select class="doctrine-select" id="doctrine-${teamKey}" data-team="${teamKey}" aria-label="${label} doctrine">${optionMarkup}</select>
+      </div>`;
+    } else if (unitKey) {
+      html += `<div class="team-doctrine team-doctrine-static">
+        <span class="team-doctrine-label">Doctrine</span>
+        <span class="team-doctrine-value">${escapeHtml(unitDisplayLabel(unitKey))}</span>
+      </div>`;
+    }
     if (vehicles.length) {
       const totalCount = vehicles.reduce((sum, v) => sum + (v.count || 0), 0);
       html += `<div class="vehicle-capability-label">Vehicles (${totalCount})</div>

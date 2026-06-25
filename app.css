@@ -1173,6 +1173,58 @@ html, body {
   color: var(--text-secondary);
 }
 
+.team-doctrine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.team-doctrine-label {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.doctrine-select {
+  flex: 1;
+  min-width: 0;
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-cond);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  cursor: pointer;
+  outline: none;
+}
+
+.doctrine-select:focus {
+  border-color: var(--accent);
+}
+
+.doctrine-select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  text-transform: none;
+}
+
+.team-doctrine-value {
+  font-family: var(--font-cond);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
 .vehicle-capability-label {
   margin-top: 10px;
   margin-bottom: 4px;

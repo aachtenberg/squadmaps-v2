@@ -37,6 +37,23 @@
   const HAB_BUILD_RADIUS = 15000;     // 150m in UE units (construction radius)
   const HAB_EXCLUSION_RADIUS = 40000; // 400m in UE units (enemy/friendly FOB exclusion)
 
+  // Squad-style military grid (300 m major squares + keypad / sub-keypad).
+  // Aligned to mapTextureCorners like in-game / SquadCalc — letters west→east,
+  // numbers north→south, keypad numpad layout within each square.
+  let gridLayerGroup = null;
+  let gridBounds = null;            // {xmin,xmax,ymin,ymax} for the active map
+  let gridMajorLines = [];
+  let gridKpLines = [];
+  let gridSubLines = [];
+  let gridVisible = true;
+  try {
+    const storedGrid = localStorage.getItem('squadmaps-grid-visible');
+    if (storedGrid !== null) gridVisible = storedGrid === 'true';
+  } catch (_) { /* private mode */ }
+  const GRID_MAJOR_UE = 30000;      // 300 m
+  const GRID_KP_UE = 10000;         // 100 m
+  const GRID_SUB_UE = 10000 / 3;    // ~33.3 m
+
   // Indirect-fire tool.
   // Always-on: double-click the map to place. First dblclick = weapon (shows
   // range circle); each subsequent dblclick adds an independent target. All
@@ -1772,6 +1789,9 @@
       mapResizeObserver.observe(container);
     }
 
+    // Military grid under gameplay markers (toggleable)
+    initGridLayer(minX, minY, maxX, maxY);
+
     // Add markers
     if (markerGroup) {
       markerGroup.clearLayers();
@@ -1790,6 +1810,8 @@
     leafletMap.on('dblclick', handleMapDblClick);
     leafletMap.on('contextmenu', openMapContextMenu);
     leafletMap.on('movestart zoomstart', closeMapContextMenu);
+    leafletMap.on('mousemove', updateGridCoordHud);
+    leafletMap.on('mouseout', hideGridCoordHud);
   }
 
   // ---- Fixed Path Helpers ----
@@ -3622,6 +3644,249 @@
         openMap(mapId, layerRaw);
       }
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // Military grid overlay (Squad letter × number + keypad)
+  // ---------------------------------------------------------------------
+
+  function isGridMultiple(interval, value, origin) {
+    const t = (value - origin) / interval;
+    const r = Math.round(t);
+    return Math.abs(t - r) < 1e-4;
+  }
+
+  function gridColLetter(index) {
+    // A–Z then a–z for oversized maps (matches SquadMC / SquadCalc convention).
+    if (index < 26) return String.fromCharCode(65 + index);
+    return String.fromCharCode(97 + (index - 26));
+  }
+
+  // Convert UE position → Squad grid callout, e.g. "B6-5-2".
+  // Letters increase west→east from texture xmin; numbers increase north→south
+  // from texture ymin (screen-top / north in SquadCRS).
+  function getGridRef(ueX, ueY, bounds) {
+    if (!bounds) return null;
+    const { xmin, xmax, ymin, ymax } = bounds;
+    if (ueX < xmin || ueX > xmax || ueY < ymin || ueY > ymax) return null;
+
+    const col = Math.floor((ueX - xmin) / GRID_MAJOR_UE);
+    const row = Math.floor((ueY - ymin) / GRID_MAJOR_UE);
+    const letter = gridColLetter(col);
+    const number = row + 1;
+
+    const localX = ueX - xmin - col * GRID_MAJOR_UE;
+    const localY = ueY - ymin - row * GRID_MAJOR_UE;
+
+    const kpCol = Math.min(2, Math.floor(localX / GRID_KP_UE));
+    const kpRow = Math.min(2, Math.floor(localY / GRID_KP_UE));
+    // Numpad: north row = 7-8-9, middle = 4-5-6, south = 1-2-3
+    const kp = (2 - kpRow) * 3 + kpCol + 1;
+
+    const subX = localX - kpCol * GRID_KP_UE;
+    const subY = localY - kpRow * GRID_KP_UE;
+    const skCol = Math.min(2, Math.floor(subX / GRID_SUB_UE));
+    const skRow = Math.min(2, Math.floor(subY / GRID_SUB_UE));
+    const sk = (2 - skRow) * 3 + skCol + 1;
+
+    return `${letter}${number}-${kp}-${sk}`;
+  }
+
+  function updateGridCoordHud(e) {
+    const hud = document.getElementById('grid-coord-hud');
+    if (!hud || !gridVisible || !gridBounds) {
+      if (hud) hud.classList.add('hidden');
+      return;
+    }
+    const ref = getGridRef(e.latlng.lng, e.latlng.lat, gridBounds);
+    if (!ref) {
+      hud.classList.add('hidden');
+      return;
+    }
+    hud.textContent = ref;
+    hud.classList.remove('hidden');
+  }
+
+  function hideGridCoordHud() {
+    const hud = document.getElementById('grid-coord-hud');
+    if (hud) hud.classList.add('hidden');
+  }
+
+  function setGridLinesOpacity(lines, opacity) {
+    if (!lines.length) return;
+    if (lines[0].options.opacity === opacity) return;
+    for (const line of lines) line.setStyle({ opacity });
+  }
+
+  function updateGridLineOpacity() {
+    if (!leafletMap || !gridLayerGroup) return;
+    const z = leafletMap.getZoom();
+    // Fit-to-map is typically ~0.5–2; keypad at mid zoom, sub-keypad when close.
+    if (z >= 4) {
+      setGridLinesOpacity(gridKpLines, 0.55);
+      setGridLinesOpacity(gridSubLines, 0.35);
+    } else if (z >= 2) {
+      setGridLinesOpacity(gridKpLines, 0.5);
+      setGridLinesOpacity(gridSubLines, 0);
+    } else {
+      setGridLinesOpacity(gridKpLines, 0);
+      setGridLinesOpacity(gridSubLines, 0);
+    }
+  }
+
+  function setGridVisible(visible) {
+    gridVisible = !!visible;
+    try { localStorage.setItem('squadmaps-grid-visible', String(gridVisible)); } catch (_) {}
+    if (!leafletMap || !gridLayerGroup) return;
+    if (gridVisible) {
+      if (!leafletMap.hasLayer(gridLayerGroup)) leafletMap.addLayer(gridLayerGroup);
+    } else {
+      if (leafletMap.hasLayer(gridLayerGroup)) leafletMap.removeLayer(gridLayerGroup);
+      hideGridCoordHud();
+    }
+    const btn = document.querySelector('.grid-toggle-btn');
+    if (btn) {
+      btn.classList.toggle('active', gridVisible);
+      btn.setAttribute('aria-pressed', String(gridVisible));
+      btn.title = t('Military Grid');
+    }
+  }
+
+  function addGridToggleControl() {
+    const GridControl = L.Control.extend({
+      options: { position: 'bottomleft' },
+      onAdd() {
+        const wrap = L.DomUtil.create('div', 'leaflet-bar grid-toggle-control');
+        const btn = L.DomUtil.create('a', 'grid-toggle-btn', wrap);
+        btn.href = '#';
+        btn.setAttribute('role', 'button');
+        btn.title = t('Military Grid');
+        btn.setAttribute('aria-label', t('Military Grid'));
+        btn.setAttribute('aria-pressed', String(gridVisible));
+        btn.innerHTML = '<span class="grid-toggle-icon" aria-hidden="true"></span>';
+        if (gridVisible) btn.classList.add('active');
+        L.DomEvent.disableClickPropagation(wrap);
+        L.DomEvent.on(btn, 'click', (e) => {
+          L.DomEvent.preventDefault(e);
+          setGridVisible(!gridVisible);
+        });
+        return wrap;
+      }
+    });
+    new GridControl().addTo(leafletMap);
+  }
+
+  function initGridLayer(minX, minY, maxX, maxY) {
+    gridMajorLines = [];
+    gridKpLines = [];
+    gridSubLines = [];
+    gridBounds = { xmin: minX, xmax: maxX, ymin: minY, ymax: maxY };
+
+    if (gridLayerGroup) {
+      gridLayerGroup.clearLayers();
+    }
+    gridLayerGroup = L.layerGroup();
+
+    const eps = 0.5; // UE-unit tolerance for float edges
+    const lineCommon = { interactive: false, className: 'mil-grid-line' };
+
+    // Thin black grid — major squares clear, keypad/sub fade in with zoom.
+    const GRID_STYLES = {
+      major: {
+        bucket: () => gridMajorLines,
+        style: { color: '#111110', weight: 1.1, opacity: 0.82 },
+        cls: 'mil-grid-major'
+      },
+      kp: {
+        bucket: () => gridKpLines,
+        style: { color: '#161614', weight: 0.85, opacity: 0 },
+        cls: 'mil-grid-kp'
+      },
+      sub: {
+        bucket: () => gridSubLines,
+        style: { color: '#1a1a17', weight: 0.65, opacity: 0 },
+        cls: 'mil-grid-sub'
+      }
+    };
+
+    function addGridStroke(latlngs, kind) {
+      const s = GRID_STYLES[kind];
+      const line = L.polyline(latlngs, {
+        ...s.style,
+        ...lineCommon,
+        className: `mil-grid-line ${s.cls}`
+      }).addTo(gridLayerGroup);
+      s.bucket().push(line);
+    }
+
+    function classifyGridCoord(value, origin) {
+      if (isGridMultiple(GRID_MAJOR_UE, value, origin)) return 'major';
+      if (isGridMultiple(GRID_KP_UE, value, origin)) return 'kp';
+      return 'sub';
+    }
+
+    // Vertical lines (constant X) — west → east from texture origin
+    for (let i = 0; ; i++) {
+      const x = minX + i * GRID_SUB_UE;
+      if (x > maxX + eps) break;
+      if (x < minX - eps) continue;
+      addGridStroke([[minY, x], [maxY, x]], classifyGridCoord(x, minX));
+    }
+
+    // Horizontal lines (constant Y) — north → south from texture origin
+    for (let i = 0; ; i++) {
+      const y = minY + i * GRID_SUB_UE;
+      if (y > maxY + eps) break;
+      if (y < minY - eps) continue;
+      addGridStroke([[y, minX], [y, maxX]], classifyGridCoord(y, minY));
+    }
+
+    // Column letters along the north edge (screen-top / ymin)
+    const colCount = Math.ceil((maxX - minX) / GRID_MAJOR_UE);
+    for (let c = 0; c < colCount; c++) {
+      const x0 = minX + c * GRID_MAJOR_UE;
+      const x1 = Math.min(maxX, x0 + GRID_MAJOR_UE);
+      if (x1 - x0 < GRID_MAJOR_UE * 0.15) continue; // skip tiny edge slivers
+      const cx = (x0 + x1) / 2;
+      const cy = minY + Math.min(GRID_MAJOR_UE * 0.12, (maxY - minY) * 0.03);
+      L.marker([cy, cx], {
+        interactive: false,
+        keyboard: false,
+        icon: L.divIcon({
+          className: 'mil-grid-label mil-grid-label-col',
+          html: gridColLetter(c),
+          iconSize: [28, 18],
+          iconAnchor: [14, 9]
+        })
+      }).addTo(gridLayerGroup);
+    }
+
+    // Row numbers along the west edge
+    const rowCount = Math.ceil((maxY - minY) / GRID_MAJOR_UE);
+    for (let r = 0; r < rowCount; r++) {
+      const y0 = minY + r * GRID_MAJOR_UE;
+      const y1 = Math.min(maxY, y0 + GRID_MAJOR_UE);
+      if (y1 - y0 < GRID_MAJOR_UE * 0.15) continue;
+      const cy = (y0 + y1) / 2;
+      const cx = minX + Math.min(GRID_MAJOR_UE * 0.12, (maxX - minX) * 0.03);
+      L.marker([cy, cx], {
+        interactive: false,
+        keyboard: false,
+        icon: L.divIcon({
+          className: 'mil-grid-label mil-grid-label-row',
+          html: String(r + 1),
+          iconSize: [28, 18],
+          iconAnchor: [14, 9]
+        })
+      }).addTo(gridLayerGroup);
+    }
+
+    if (gridVisible) {
+      gridLayerGroup.addTo(leafletMap);
+    }
+    leafletMap.on('zoomend', updateGridLineOpacity);
+    updateGridLineOpacity();
+    addGridToggleControl();
   }
 
   // ---- Events ----

@@ -956,6 +956,87 @@ html, body {
   background: var(--bg-card-hover) !important;
 }
 
+/* Military grid toggle (sits above zoom in bottom-left) */
+.grid-toggle-control a.grid-toggle-btn {
+  background: var(--bg-card) !important;
+  color: var(--text-secondary) !important;
+  border-color: var(--border) !important;
+  width: 30px;
+  height: 30px;
+  line-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.grid-toggle-control a.grid-toggle-btn:hover {
+  background: var(--bg-card-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+.grid-toggle-control a.grid-toggle-btn.active {
+  color: var(--accent) !important;
+}
+
+.grid-toggle-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid currentColor;
+  background:
+    linear-gradient(currentColor, currentColor) center/100% 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) center/1.5px 100% no-repeat;
+  opacity: 0.9;
+}
+
+/* Squad-style grid labels — light text + dark halo for contrast on terrain */
+.mil-grid-label {
+  background: transparent !important;
+  border: none !important;
+  color: #f2f0e6;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 1),
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    1px 0 2px rgba(0, 0, 0, 0.95),
+    -1px 0 2px rgba(0, 0, 0, 0.95);
+  text-align: center;
+  line-height: 18px;
+  pointer-events: none;
+}
+
+.leaflet-overlay-pane svg .mil-grid-line {
+  pointer-events: none;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+/* Cursor grid readout (bottom-left, above zoom + toggle) */
+.grid-coord-hud {
+  position: absolute;
+  left: 12px;
+  bottom: 86px;
+  z-index: 700;
+  padding: 4px 8px;
+  background: rgba(19, 19, 16, 0.88);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+  border-radius: 2px;
+}
+
+.grid-coord-hud.hidden {
+  display: none;
+}
+
 /* ---- Top Panel (team info overlay) ---- */
 .top-panel {
   position: absolute;

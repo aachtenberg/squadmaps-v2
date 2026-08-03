@@ -2877,10 +2877,12 @@ body {
   border-top: 1px solid rgba(var(--accent-rgb), 0.35);
 }
 
-/* Targeting-bracket corners on the key floating surfaces and map cards */
+/* Targeting-bracket corners on the key floating surfaces and map cards.
+   .mortar-panel is absent: it is position:absolute (a floating overlay), which
+   already anchors the ::before/::after corners — relative would knock it out
+   of its bottom-right overlay slot into the page flow. */
 .team-panel,
 .match-info,
-.mortar-panel,
 .map-card {
   position: relative;
 }

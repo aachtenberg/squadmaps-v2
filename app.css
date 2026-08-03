@@ -1705,6 +1705,30 @@ html, body {
   letter-spacing: 0.02em;
 }
 
+/* Prompt shown while objectives are hidden pending a side pick */
+.side-pick-hint {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.side-pick-hint .side-pick-m {
+  display: inline-block;
+  min-width: 13px;
+  padding: 0 2px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 9px;
+  line-height: 13px;
+  text-align: center;
+}
+
 .lane-status strong {
   color: var(--accent);
 }

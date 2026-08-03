@@ -836,6 +836,13 @@
 
     const miEl = document.getElementById('match-info');
     const hasLanes = laneHtml.length > 0;
+    // Objectives stay hidden until a side is picked (mirrors the
+    // hideUntilSidePicked gate in drawObjectives) — tell the user how.
+    const needsSidePick = !activeTeam && !activeLane
+      && (laneNames.length > 0 || !!getFixedPath(layer));
+    const sideHintHtml = needsSidePick
+      ? `<div class="side-pick-hint">Click a main base <span class="side-pick-m">M</span> to pick a side and reveal objectives</div>`
+      : '';
     const toggleHtml = hasLanes
       ? `<button class="match-info-toggle" id="match-info-toggle" title="Collapse / expand" aria-label="Toggle lane panel">&#9662;</button>`
       : '';
@@ -843,7 +850,7 @@
       ${toggleHtml}
       <div class="gamemode-label">${gm}</div>
       <div class="map-size">${layer.mapSize || ''}</div>
-      ${laneHtml}${phaseHtml}${tcHtml}`;
+      ${sideHintHtml}${laneHtml}${phaseHtml}${tcHtml}`;
     miEl.classList.toggle('collapsed', hasLanes && matchInfoCollapsed);
     if (hasLanes) {
       const toggleBtn = document.getElementById('match-info-toggle');
@@ -1845,6 +1852,10 @@
     // capture progression. An explicit lane selection narrows the visible
     // graph instead of replacing it.
     const selectedRaasLane = activeLane ? lanes[activeLane] : null;
+
+    // Until a side is picked (click a main), keep the board clean: only the
+    // two mains render. An explicit lane selection is its own opt-in reveal.
+    const hideUntilSidePicked = (hasRaasLanes || isAAS) && !activeTeam && !selectedRaasLane;
     const lane = aasPath && activeTeam ? aasPath : null;
     const isRaasProgressive = hasRaasLanes && activeTeam;
     let progressionLanes = null;
@@ -1990,6 +2001,8 @@
 
       const entryToken = normalizeObjectiveToken(entry.key);
       const isMain = /team[12]main/.test(entryToken);
+
+      if (hideUntilSidePicked && !isMain) continue;
 
       // Determine if this objective is in the active lane / remaining lane union
       // Mains are always in every lane

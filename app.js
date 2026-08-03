@@ -2130,9 +2130,12 @@
               advanceCaptureSequence(layer, entryToken, { x: sp.x, y: sp.y, name: sp.name });
             });
           } else if (isCaptured && lastCapturedTokens.has(entryToken) && styleAsLane && !isAAS) {
-            // Last captured: click to uncapture
+            // Last captured: click to uncapture. Leave capturedSubPoints to
+            // retreatCaptureSequence — deleting the clicked token's record
+            // first breaks getCaptureStepKey's position grouping, so alias
+            // captures (d1+g1 on one flag) stop counting as one step and the
+            // retreat strands half the step as captured-with-no-subpoint.
             marker.on('click', () => {
-              delete capturedSubPoints[entryToken];
               retreatCaptureSequence(layer);
             });
           } else if (!isLookahead) {

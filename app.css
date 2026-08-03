@@ -2469,7 +2469,6 @@ html, body {
 }
 
 /* Max-range circle stroke override (Leaflet draws svg paths) */
-.leaflet-overlay-pane svg path.leaflet-interactive + path,
 .mortar-range-circle {
   stroke-dasharray: 4 5;
 }

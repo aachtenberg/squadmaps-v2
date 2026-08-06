@@ -1236,12 +1236,28 @@
   // end (every lane shares it). Single-lane Invasions (Anvil etc.) have just
   // one team1main, no letter-prefix on the clusters. Returns a lanes map in
   // the same shape as RAAS getLanes() so the existing renderer handles it.
+  //
+  // Some layers ship a clusters block that no longer matches their objectives
+  // — Gorodok Invasion v3/v4 and Black Coast v3 still carry the vanilla
+  // "01..05-CaptureZoneCluster" placeholder chain while the real objectives
+  // are A1-A5/B1-B5/C1-C5, and Fallujah/Harju v4 CL list lane points that
+  // were removed. Left alone, none of those names resolve to an objective,
+  // so every contestable point gets filtered out and drawLaneLines is left
+  // with [team1main, team2main] — one straight line across the map. Validate
+  // the parsed lanes against the objectives and synthesize from the objective
+  // keys when they disagree.
   function getInvasionLanes(layer) {
     if (layer.gamemode !== 'Invasion') return {};
     const cp = layer.capturePoints || {};
     const flat = (cp.clusters || {}).pointsOrder
               || (cp.points || {}).pointsOrder
               || [];
+    const parsed = parseInvasionPointsOrder(flat);
+    if (invasionLanesMatchObjectives(layer, parsed)) return parsed;
+    return synthesizeInvasionLanes(layer) || parsed;
+  }
+
+  function parseInvasionPointsOrder(flat) {
     if (!Array.isArray(flat) || flat.length === 0) return {};
 
     const isTeam1 = (n) => /team\s*1.*main/i.test(n);
@@ -1273,8 +1289,14 @@
     const lanes = {};
     const usedNames = new Set();
     segments.forEach((seg, idx) => {
-      const firstCluster = seg.find((s) => !isTeam1(s));
-      const letterMatch = firstCluster && firstCluster.match(/^([A-Z])\d/i);
+      // Name from the first LETTER-prefixed cluster, not simply the first one.
+      // Yehorivka/Sanxian/Tallil open every lane on a shared numeric approach
+      // point ("1-CaptureZoneCluster") before branching into A2../B2.., so
+      // looking only at seg[1] would label them all "Lane N".
+      const letterMatch = seg
+        .filter((s) => !isTeam1(s))
+        .map((s) => s.match(/^([A-Z])\d/i))
+        .find(Boolean);
       let name = letterMatch ? letterMatch[1].toUpperCase() : `Lane ${idx + 1}`;
       // Disambiguate if two segments collide on the same letter
       let suffix = 2;
@@ -1292,6 +1314,97 @@
         listOfMains: [seg[0], team2Token].filter(Boolean),
       };
     });
+
+    return lanes;
+  }
+
+  // A parsed lane set is only usable if it round-trips against the layer's
+  // objectives: every lane point resolves to an objective, every contestable
+  // objective appears in some lane, and no lane is mains-only.
+  function invasionLanesMatchObjectives(layer, lanes) {
+    const laneNames = Object.keys(lanes || {});
+    if (laneNames.length === 0) return false;
+
+    const objTokens = new Set(
+      Object.keys(layer.objectives || {}).map(normalizeObjectiveToken).filter(Boolean)
+    );
+    if (objTokens.size === 0) return false;
+
+    const seen = new Set();
+    for (const name of laneNames) {
+      let contestable = 0;
+      for (const point of lanes[name].pointsOrder || []) {
+        const token = normalizeObjectiveToken(point);
+        if (!objTokens.has(token)) return false;
+        seen.add(token);
+        if (!/team[12]main/.test(token)) contestable++;
+      }
+      if (contestable === 0) return false;
+    }
+
+    for (const token of objTokens) {
+      if (!/team[12]main/.test(token) && !seen.has(token)) return false;
+    }
+    return true;
+  }
+
+  // Rebuild the lane graph straight from the objective keys. Squad names
+  // Invasion clusters "<lane letter><step>-..." (A1-A5, B1-B5, ...), with
+  // purely numeric keys ("01-", "1-") reserved for approach points every lane
+  // shares before it branches. Mains bookend each lane.
+  function synthesizeInvasionLanes(layer) {
+    const objectives = layer.objectives || {};
+    let team1Main = null;
+    let team2Main = null;
+    const lettered = new Map(); // letter -> [{ key, idx }]
+    const shared = [];          // numeric-only clusters, shared by every lane
+
+    for (const key of Object.keys(objectives)) {
+      const token = normalizeObjectiveToken(key);
+      if (token === 'team1main') { team1Main = key; continue; }
+      if (token === 'team2main') { team2Main = key; continue; }
+
+      const letterMatch = key.match(/^([A-Za-z])0*(\d+)\b/);
+      if (letterMatch) {
+        const letter = letterMatch[1].toUpperCase();
+        if (!lettered.has(letter)) lettered.set(letter, []);
+        lettered.get(letter).push({ key, idx: parseInt(letterMatch[2], 10) });
+        continue;
+      }
+
+      const numMatch = key.match(/^0*(\d+)\b/);
+      if (numMatch) {
+        const idx = parseInt(numMatch[1], 10);
+        // 00- and 100- are the reserved main-base slots, already matched above.
+        if (idx > 0 && idx < 100) shared.push({ key, idx });
+      }
+    }
+
+    if (!team1Main || !team2Main) return null;
+    shared.sort((a, b) => a.idx - b.idx);
+    const sharedKeys = shared.map((c) => c.key);
+
+    const lanes = {};
+    const addLane = (name, clusterKeys) => {
+      const pointsOrder = [team1Main, ...clusterKeys, team2Main];
+      lanes[name] = {
+        name,
+        pointsOrder,
+        numberOfPoints: pointsOrder.length,
+        listOfMains: [team1Main, team2Main],
+      };
+    };
+
+    if (lettered.size > 0) {
+      for (const letter of [...lettered.keys()].sort()) {
+        const ordered = lettered.get(letter).sort((a, b) => a.idx - b.idx).map((c) => c.key);
+        addLane(letter, [...sharedKeys, ...ordered]);
+      }
+    } else if (sharedKeys.length > 0) {
+      addLane('Lane 1', sharedKeys);
+    } else {
+      return null;
+    }
 
     return lanes;
   }

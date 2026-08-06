@@ -71,12 +71,19 @@ The image carries the small static payload (~30 MB); the bulky tile
 pyramid + heightmaps stay on the k3s node via a hostPath mount because
 they're gitignored upstream and ~770 MB.
 
-The k8s manifest lives in [homelab-infra](https://github.com/aachtenberg/homelab-infra/blob/main/k3s/base/apps/squadmaps.yml).
-Rollout after a code change:
+Deploys are automatic. After pushing the image, the build workflow commits
+the new immutable `sha-<sha7>` tag into the private deploy repo
+`aachtenberg/squadmaps-deploy`, where the k8s manifest lives; ArgoCD tracks
+that repo and rolls the deployment. Nothing to run by hand.
 
-```bash
-ssh <k3s-host> 'sudo kubectl rollout restart deployment/squadmaps -n apps'
 ```
+push to main → GHA build → GHCR :sha-<sha7> → bump squadmaps-deploy → ArgoCD → rollout
+```
+
+The manifest is private because it carries topology (pinned node, hostPath
+layout, LAN NodePort); this repo stays public and its `DEPLOY_PAT` is scoped
+to the deploy repo alone. See [docs/deploy.md](docs/deploy.md) for rollbacks
+and for what to check when a deploy doesn't land.
 
 Logs: `kubectl logs -n apps deploy/squadmaps -f`.
 

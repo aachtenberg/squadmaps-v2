@@ -1,5 +1,23 @@
 name: Build and push container image
 
+# On every push to main: build the image, push it to GHCR, then commit the new
+# immutable sha- tag into the PRIVATE deploy repo aachtenberg/squadmaps-deploy
+# (ArgoCD's standalone `squadmaps` Application syncs that repo). The bump is a
+# mechanical one-liner, so it lands directly on that repo's main and ArgoCD
+# rolls the pod — no cross-repo PR, no manual merge.
+#
+# The bump is what makes the deploy happen at all. The manifest used to pin the
+# moving :main tag, so a green build changed nothing in Git; ArgoCD saw a synced
+# app and never restarted the pod, and every deploy needed a hand-run
+# `kubectl rollout restart`. See docs/deploy.md.
+#
+# The manifests live in a separate PRIVATE repo rather than in homelab-infra
+# because this repo is PUBLIC — DEPLOY_PAT is scoped to squadmaps-deploy alone
+# instead of granting write access to the whole infra monorepo.
+#
+# Requires repo secret DEPLOY_PAT: a token with contents:write on
+# aachtenberg/squadmaps-deploy.
+
 on:
   push:
     branches: [main]
@@ -17,6 +35,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.tag.outputs.tag }}
     permissions:
       contents: read
       packages: write
@@ -36,6 +56,14 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Mirrors the `type=sha,prefix=sha-,format=short` tag the metadata action
+      # stamps below (short sha is 7 chars). Exposed as a job output so the
+      # bump job pins the exact immutable tag this build produced rather than
+      # re-deriving it.
+      - name: Compute immutable tag
+        id: tag
+        run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata
         id: meta
@@ -58,3 +86,44 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  bump-deploy-repo:
+    needs: build
+    runs-on: ubuntu-latest
+    # Serialize bumps so two quick pushes can't race on the deploy repo's main.
+    concurrency:
+      group: squadmaps-deploy-bump
+      cancel-in-progress: false
+    steps:
+      - name: Checkout squadmaps-deploy
+        uses: actions/checkout@v4
+        with:
+          repository: aachtenberg/squadmaps-deploy
+          token: ${{ secrets.DEPLOY_PAT }}
+          path: squadmaps-deploy
+
+      - name: Install kustomize
+        run: |
+          curl -sL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" \
+            | bash -s 5.4.3
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Bump image tag and push
+        working-directory: squadmaps-deploy
+        run: |
+          kustomize edit set image \
+            ghcr.io/aachtenberg/squadmaps-v2=ghcr.io/aachtenberg/squadmaps-v2:${{ needs.build.outputs.image-tag }}
+          if git diff --quiet -- kustomization.yml; then
+            echo "Image tag already ${{ needs.build.outputs.image-tag }}; nothing to commit."
+            exit 0
+          fi
+          git config user.name "squadmaps-ci"
+          git config user.email "squadmaps-ci@users.noreply.github.com"
+          git add kustomization.yml
+          git commit -m "deploy: bump squadmaps to ${{ needs.build.outputs.image-tag }}" \
+                     -m "Source: ${{ github.repository }}@${{ github.sha }}" \
+                     -m "Build: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # Rebase-pull in case a concurrent bump landed first, then push.
+          git pull --rebase --autostash origin main
+          git push origin main
+          echo "Pushed bump → ArgoCD will roll the squadmaps deployment."

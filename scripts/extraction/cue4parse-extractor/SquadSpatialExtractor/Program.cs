@@ -770,7 +770,17 @@ public static class Program
             else if (arg == "--filter" && i + 1 < args.Length) filter = args[++i];
             else if (arg == "--out" && i + 1 < args.Length) outputDir = args[++i];
             else if (arg == "--content-root" && i + 1 < args.Length) squadContentRoot = args[++i];
-            else if (arg == "--dump-asset" && i + 1 < args.Length) dumpAssets.Add(args[++i]);
+            else if (arg == "--dump-asset")
+            {
+                // Fail loudly: falling through would run the default
+                // smoke-test extraction and overwrite real spatial output.
+                if (i + 1 >= args.Length)
+                {
+                    Console.Error.WriteLine("ERROR: --dump-asset requires a value.");
+                    return 1;
+                }
+                dumpAssets.Add(args[++i]);
+            }
             else if (arg == "--help" || arg == "-h") { PrintHelp(); return 0; }
         }
 

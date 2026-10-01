@@ -13,7 +13,7 @@ Prerequisites
 -------------
 - Squad SDK installed somewhere (e.g. E:\epic\SquadEditor on Windows
   visible from WSL — adjust paths in the commands below).
-- dotnet 8 SDK installed user-local at ~/.dotnet (see
+- dotnet 10 SDK installed user-local at ~/.dotnet (see
   cue4parse-extractor/README.md for the one-time setup).
 - Python 3.10+.
 - The CUE4Parse git submodule initialized:

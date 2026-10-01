@@ -6,13 +6,13 @@ WSL/Linux tool that reads Squad SDK `.umap` files directly via
 
 ## Setup
 
-The extractor depends on dotnet 8 SDK and on the CUE4Parse git submodule.
+The extractor depends on the dotnet 10 SDK (upstream CUE4Parse targets net10.0) and on the CUE4Parse git submodule.
 
 ```bash
-# 1. Install dotnet 8 SDK user-local (no sudo needed)
+# 1. Install dotnet 10 SDK user-local (no sudo needed)
 curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
 chmod +x /tmp/dotnet-install.sh
-/tmp/dotnet-install.sh --channel 8.0 --install-dir "$HOME/.dotnet"
+/tmp/dotnet-install.sh --channel 10.0 --install-dir "$HOME/.dotnet"
 
 # 2. Add to your shell rc:
 echo 'export DOTNET_ROOT="$HOME/.dotnet"' >> ~/.bashrc
@@ -56,6 +56,10 @@ dotnet run --no-build -- --all
 
 # Filter by substring (extracts every Manicouagan layer, etc)
 dotnet run --no-build -- --filter Manicouagan
+
+# Diagnostics: print every export of matching .uasset files as JSON
+# (e.g. projectile InitialSpeed / gravity scale for the mortar tool)
+dotnet run --no-build -- --dump-asset Projectiles/BP_Mortarround4
 ```
 
 Output: one `<LayerName>.json` per layer + an `index.json` roll-up.
@@ -63,8 +67,8 @@ Output: one `<LayerName>.json` per layer + an `index.json` roll-up.
 ## How it works
 
 CUE4Parse loads `.umap` binaries directly from disk — no editor needed,
-no PIE, no Nanite mesh builds. Squad's UE 5.5 build is supported via the
-explicit `EGame.GAME_Squad` enum value in CUE4Parse.
+no PIE, no Nanite mesh builds. Squad's UE 5.7 build (since the 10.5 SDK) is
+supported via the explicit `EGame.GAME_Squad` enum value in CUE4Parse.
 
 The extractor walks each layer's exports for relevant actor classes:
 - `BP_CaptureZoneCluster_C`, `BP_CaptureZone_C`, `BP_CaptureZoneMain_C`

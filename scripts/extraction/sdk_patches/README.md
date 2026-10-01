@@ -41,5 +41,9 @@ if len(Teams) < 2:
     continue
 ```
 
+The 10.5.3 SDK (UE 5.7.4) still ships the same broken file, and the
+launcher overwrites the patched copy on update, so re-copy after every
+SDK update.
+
 If a future SDK update fixes any of these upstream, drop the vendored
 copy.

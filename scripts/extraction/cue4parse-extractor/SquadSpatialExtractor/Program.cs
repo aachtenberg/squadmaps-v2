@@ -759,6 +759,7 @@ public static class Program
         string? filter = null;
         string? squadContentRoot = null;
         string? outputDir = null;
+        var dumpAssets = new List<string>();
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -769,6 +770,17 @@ public static class Program
             else if (arg == "--filter" && i + 1 < args.Length) filter = args[++i];
             else if (arg == "--out" && i + 1 < args.Length) outputDir = args[++i];
             else if (arg == "--content-root" && i + 1 < args.Length) squadContentRoot = args[++i];
+            else if (arg == "--dump-asset")
+            {
+                // Fail loudly: falling through would run the default
+                // smoke-test extraction and overwrite real spatial output.
+                if (i + 1 >= args.Length)
+                {
+                    Console.Error.WriteLine("ERROR: --dump-asset requires a value.");
+                    return 1;
+                }
+                dumpAssets.Add(args[++i]);
+            }
             else if (arg == "--help" || arg == "-h") { PrintHelp(); return 0; }
         }
 
@@ -814,6 +826,37 @@ public static class Program
         Console.WriteLine("Initializing file provider...");
         provider.Initialize();
         Console.WriteLine($"  {provider.Files.Count} files seen.");
+
+        // --dump-asset: print every export of each matching .uasset as JSON
+        // and exit. Used to read blueprint defaults (e.g. projectile
+        // InitialSpeed / gravity scale) without opening the editor.
+        if (dumpAssets.Count > 0)
+        {
+            foreach (var needle in dumpAssets)
+            {
+                var matches = provider.Files.Keys
+                    .Where(k => k.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase)
+                             && k.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(k => k)
+                    .ToList();
+                Console.WriteLine($"=== --dump-asset {needle} → {matches.Count} match(es)");
+                foreach (var key in matches)
+                {
+                    var packagePath = key.Substring(0, key.Length - ".uasset".Length);
+                    Console.WriteLine($"--- {packagePath}");
+                    try
+                    {
+                        var exports = provider.LoadPackage(packagePath).GetExports();
+                        Console.WriteLine(JsonConvert.SerializeObject(exports, Formatting.Indented));
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"  FAILED: {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
+            }
+            return 0;
+        }
 
         // Find all gameplay layer umaps — these live under:
         //   Maps/<MapName>/Gameplay_Layers/<Layer>.umap     (standard PvP layers)
@@ -1047,6 +1090,11 @@ public static class Program
         Console.WriteLine("Output:");
         Console.WriteLine("  --out <dir>               Override output directory");
         Console.WriteLine("                            (default: <content-root>/../Saved/SquadMapsExport/spatial)");
+        Console.WriteLine();
+        Console.WriteLine("Diagnostics:");
+        Console.WriteLine("  --dump-classes            Print actor classes + AttachParent chains for the selected layers");
+        Console.WriteLine("  --dump-asset <substring>  Print every export of matching .uasset files as JSON, then exit");
+        Console.WriteLine("                            (repeatable; e.g. --dump-asset BP_Mortarround4)");
         Console.WriteLine();
         Console.WriteLine("  --help                    Show this help");
         Console.WriteLine();

@@ -428,6 +428,8 @@ def create_new_layer(layer_csv, map_spatial, mapid_override=None):
     display_name = f"{map_name} {gamemode} {version}"
     if '_CL' in raw_name:
         display_name += " CL"
+    if raw_name.endswith('_WP'):
+        display_name += " WP"
     
     # Get map spatial data
     spatial = map_spatial.get(mapid, map_spatial.get(map_id_for_display, {}))
@@ -684,34 +686,51 @@ def main():
         map_key = name.split('_')[0]
         mapid = MAPID_REMAP.get(map_key, map_key)
 
-        new_layer = create_new_layer(csv_row, map_spatial, mapid_override=mapid)
+        # A World Partition layer (Squad 10.6+, e.g. Yehorivka_RAAS_v1_WP) is
+        # the same layout as its non-WP twin, re-saved as external actors.
+        # Start from a full copy of the twin so baseline-only data (TC hexes,
+        # Destruction phases, protection zones, vehicle flags) carries over,
+        # then refresh the CSV-driven fields like a common layer.
+        twin_name = name[:-len('_WP')] if name.endswith('_WP') else None
+        if twin_name in existing_by_name:
+            new_layer = deepcopy(existing_by_name[twin_name])
+            new_layer['rawName'] = new_layer['levelName'] = name
+            new_layer['Name'] = f"{new_layer['Name']} WP"
+            new_layer['teamConfigs'] = build_team_configs(csv_row)
+            new_layer['commanderDisabled'] = not csv_row['commander']
+            new_layer['teamConfigs']['team1']['tickets'] = csv_row['tickets_t1']
+            new_layer['teamConfigs']['team2']['tickets'] = csv_row['tickets_t2']
+            stats['inherited'] += 1
+            print(f"  {name}: copied from World Partition twin {twin_name}")
+        else:
+            new_layer = create_new_layer(csv_row, map_spatial, mapid_override=mapid)
 
-        # Try to inherit mapAssets from a same-map sibling in the baseline
-        if mapid in map_assets_index:
-            new_layer['mapAssets'] = deepcopy(map_assets_index[mapid])
+            # Try to inherit mapAssets from a same-map sibling in the baseline
+            if mapid in map_assets_index:
+                new_layer['mapAssets'] = deepcopy(map_assets_index[mapid])
 
-        # Try to inherit other assets (vehicle spawners etc.) from a
-        # same-gamemode sibling, falling back to any same-map sibling
-        best_sibling = None
-        for sibling_name, sibling_layer in existing_by_name.items():
-            if sibling_layer['mapId'] == mapid and sibling_layer.get('gamemode', '') == csv_row['cp_type']:
-                best_sibling = sibling_layer
-                break
-        if not best_sibling:
+            # Try to inherit other assets (vehicle spawners etc.) from a
+            # same-gamemode sibling, falling back to any same-map sibling
+            best_sibling = None
             for sibling_name, sibling_layer in existing_by_name.items():
-                if sibling_layer['mapId'] == mapid:
+                if sibling_layer['mapId'] == mapid and sibling_layer.get('gamemode', '') == csv_row['cp_type']:
                     best_sibling = sibling_layer
                     break
+            if not best_sibling:
+                for sibling_name, sibling_layer in existing_by_name.items():
+                    if sibling_layer['mapId'] == mapid:
+                        best_sibling = sibling_layer
+                        break
 
-        if best_sibling:
-            new_layer['assets'] = deepcopy(best_sibling.get('assets', {}))
-            new_layer['capturePoints'] = deepcopy(best_sibling.get('capturePoints', {}))
-            new_layer['objectives'] = deepcopy(best_sibling.get('objectives', {}))
-            stats['inherited'] += 1
-            print(f"  {name}: inherited from {best_sibling['rawName']}")
-        else:
-            stats['new_created'] += 1
-            print(f"  {name}: no sibling found, created with empty spatial data")
+            if best_sibling:
+                new_layer['assets'] = deepcopy(best_sibling.get('assets', {}))
+                new_layer['capturePoints'] = deepcopy(best_sibling.get('capturePoints', {}))
+                new_layer['objectives'] = deepcopy(best_sibling.get('objectives', {}))
+                stats['inherited'] += 1
+                print(f"  {name}: inherited from {best_sibling['rawName']}")
+            else:
+                stats['new_created'] += 1
+                print(f"  {name}: no sibling found, created with empty spatial data")
 
         # Attach per-unit vehicle lists (faction asset_name -> [vehicles])
         if vehicles_by_layer:

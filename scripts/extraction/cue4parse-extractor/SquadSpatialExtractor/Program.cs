@@ -193,9 +193,8 @@ public record LayerData(
 
 public static class LayerExtractor
 {
-    public static LayerData Extract(IPackage package, string layerName, string levelPath)
+    public static LayerData Extract(IReadOnlyList<UObject> exports, string layerName, string levelPath)
     {
-        var exports = package.GetExports().ToList();
 
         var mains = exports
             .Where(e => ClassName(e).Contains("CaptureZoneMain", StringComparison.OrdinalIgnoreCase))
@@ -374,6 +373,79 @@ public static class LayerExtractor
     private static string ClassName(UObject obj) => obj.Class?.Name.Text ?? "";
 
     public static FVector PublicGetLocation(UObject obj) => GetLocation(obj);
+
+    /// <summary>
+    /// Load a layer's exports, including World Partition / One File Per Actor
+    /// external actors. WP layers (e.g. Yehorivka_*_WP, Squad 10.6+) keep
+    /// almost nothing in the .umap itself; each actor lives in its own package
+    /// under the mount's Content/__ExternalActors__/ mirror of the level path:
+    ///   SquadGame/Content/Maps/Yehorivka/Gameplay_Layers/Yehorivka_RAAS_v1_WP.umap
+    ///   SquadGame/Content/__ExternalActors__/Maps/Yehorivka/Gameplay_Layers/Yehorivka_RAAS_v1_WP/**.uasset
+    /// Non-WP layers have no such folder and get just the .umap exports.
+    /// </summary>
+    public static (List<UObject> exports, int externalPackages) LoadLayerExports(
+        DefaultFileProvider provider, string packagePath)
+    {
+        var exports = provider.LoadPackage(packagePath).GetExports().ToList();
+        _levelObjects = null;
+
+        var contentIdx = packagePath.IndexOf("/Content/", StringComparison.OrdinalIgnoreCase);
+        if (contentIdx < 0) return (exports, 0);
+        var split = contentIdx + "/Content/".Length;
+        var externalPrefix = packagePath[..split] + "__ExternalActors__/" + packagePath[split..] + "/";
+
+        var externalPackages = provider.Files.Keys
+            .Where(k => k.StartsWith(externalPrefix, StringComparison.OrdinalIgnoreCase)
+                     && k.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        foreach (var key in externalPackages)
+        {
+            exports.AddRange(provider.LoadPackage(key[..^".uasset".Length]).GetExports());
+        }
+
+        // External actors reference each other (AttachParent, components)
+        // as imports of the *level* package, e.g.
+        //   Yehorivka_RAAS_v1_WP.PersistentLevel.BP_RAASLaneGraph_2.RootComponent
+        // but the target lives in another external package, so CUE4Parse's
+        // import resolution returns null. Index every loaded object by its
+        // path below PersistentLevel so LoadRef can resolve those by hand.
+        if (externalPackages.Count > 0)
+        {
+            _levelObjects = new Dictionary<string, UObject>(StringComparer.OrdinalIgnoreCase);
+            foreach (var obj in exports)
+                _levelObjects.TryAdd(LevelRelativePath(obj.Name, obj.Outer), obj);
+        }
+        return (exports, externalPackages.Count);
+    }
+
+    // Objects of the layer currently being extracted, keyed by their path
+    // below PersistentLevel. Only set for layers with external actors.
+    private static Dictionary<string, UObject>? _levelObjects;
+
+    private static string LevelRelativePath(string name, ResolvedObject? outer)
+    {
+        var parts = new List<string> { name };
+        for (var o = outer; o != null && o.Name.Text != "PersistentLevel"; o = o.Outer)
+            parts.Add(o.Name.Text);
+        parts.Reverse();
+        return string.Join(".", parts);
+    }
+
+    /// <summary>
+    /// Load a referenced object, falling back to the current layer's external
+    /// actors when the reference crosses World Partition actor packages.
+    /// </summary>
+    public static UObject? LoadRef(FPackageIndex? index)
+    {
+        if (index == null || index.IsNull) return null;
+        UObject? obj = null;
+        try { obj = index.Load(); } catch { /* unresolvable import; fall through */ }
+        if (obj != null || _levelObjects == null) return obj;
+        var resolved = index.ResolvedObject;
+        if (resolved == null) return null;
+        return _levelObjects.TryGetValue(LevelRelativePath(resolved.Name.Text, resolved.Outer), out var hit) ? hit : null;
+    }
     public static string PublicGetActorLabel(UObject obj) => GetActorLabel(obj);
 
     /// <summary>
@@ -398,7 +470,7 @@ public static class LayerExtractor
     {
         var rootRef = obj.GetOrDefault<FPackageIndex?>("RootComponent");
         if (rootRef == null || rootRef.IsNull) return default;
-        var root = rootRef.Load();
+        var root = LoadRef(rootRef);
         if (root == null) return default;
         return AccumulateWorldLocation(root);
     }
@@ -428,7 +500,7 @@ public static class LayerExtractor
             chain.Add(current);
             var parentRef = current.GetOrDefault<FPackageIndex?>("AttachParent");
             if (parentRef == null || parentRef.IsNull) break;
-            current = parentRef.Load();
+            current = LoadRef(parentRef);
         }
 
         // Walk root->leaf so each child's local offset is rotated by the
@@ -460,7 +532,7 @@ public static class LayerExtractor
     {
         var rootRef = obj.GetOrDefault<FPackageIndex?>("RootComponent");
         if (rootRef == null || rootRef.IsNull) return default;
-        var root = rootRef.Load();
+        var root = LoadRef(rootRef);
         if (root == null) return default;
         return root.GetOrDefault<FRotator>("RelativeRotation");
     }
@@ -475,11 +547,11 @@ public static class LayerExtractor
     {
         var rootRef = actor.GetOrDefault<FPackageIndex?>("RootComponent");
         if (rootRef == null || rootRef.IsNull) return null;
-        var root = rootRef.Load();
+        var root = LoadRef(rootRef);
         if (root == null) return null;
         var parentRef = root.GetOrDefault<FPackageIndex?>("AttachParent");
         if (parentRef == null || parentRef.IsNull) return null;
-        var parentComp = parentRef.Load();
+        var parentComp = LoadRef(parentRef);
         if (parentComp == null) return null;
         // The parent component's Outer is the parent actor (ResolvedObject -> UObject)
         return parentComp.Outer?.Load();
@@ -498,7 +570,7 @@ public static class LayerExtractor
             foreach (var compRef in refs)
             {
                 if (compRef.IsNull) continue;
-                var comp = compRef.Load();
+                var comp = LoadRef(compRef);
                 if (comp == null) continue;
                 if (ClassName(comp).Contains(classNameFragment, StringComparison.OrdinalIgnoreCase))
                     return comp;
@@ -922,12 +994,13 @@ public static class Program
             Console.Write($"  [{layerName}]... ");
             try
             {
-                var package = provider.LoadPackage(packagePath);
+                var (layerExports, externalPackages) = LayerExtractor.LoadLayerExports(provider, packagePath);
+                if (externalPackages > 0) Console.Write($"(+{externalPackages} external actors) ");
 
                 if (dumpClasses)
                 {
                     Console.WriteLine();
-                    var allExports = package.GetExports().ToList();
+                    var allExports = layerExports;
                     var byClass = allExports
                         .GroupBy(e => e.Class?.Name.Text ?? "<no-class>")
                         .OrderByDescending(g => g.Count())
@@ -1001,7 +1074,7 @@ public static class Program
                         Console.WriteLine($"    --- actor: {LayerExtractor.PublicGetActorLabel(actor)} (export.Name={actor.Name}) ---");
                         var rootRef = actor.GetOrDefault<FPackageIndex?>("RootComponent");
                         if (rootRef == null || rootRef.IsNull) { Console.WriteLine($"      <no RootComponent>"); continue; }
-                        var current = rootRef.Load();
+                        var current = LayerExtractor.LoadRef(rootRef);
                         for (int hop = 0; hop < 16 && current != null; hop++)
                         {
                             var local = current.GetOrDefault<FVector>("RelativeLocation");
@@ -1014,7 +1087,7 @@ public static class Program
                             Console.WriteLine($"        Loc=({local.X:F0}, {local.Y:F0}, {local.Z:F0})  Rot=(p{rot.Pitch:F1}, y{rot.Yaw:F1}, r{rot.Roll:F1})  Scale=({scale.X:F2}, {scale.Y:F2}, {scale.Z:F2})");
                             var parentRef = current.GetOrDefault<FPackageIndex?>("AttachParent");
                             if (parentRef == null || parentRef.IsNull) break;
-                            current = parentRef.Load();
+                            current = LayerExtractor.LoadRef(parentRef);
                         }
                     }
 
@@ -1025,7 +1098,7 @@ public static class Program
                         Console.WriteLine($"    --- actor: {LayerExtractor.PublicGetActorLabel(actor)} (export.Name={actor.Name}) ---");
                         var rootRef = actor.GetOrDefault<FPackageIndex?>("RootComponent");
                         if (rootRef == null || rootRef.IsNull) { Console.WriteLine($"      <no RootComponent>"); continue; }
-                        var current = rootRef.Load();
+                        var current = LayerExtractor.LoadRef(rootRef);
                         for (int hop = 0; hop < 16 && current != null; hop++)
                         {
                             var local = current.GetOrDefault<FVector>("RelativeLocation");
@@ -1036,7 +1109,7 @@ public static class Program
                             Console.WriteLine($"      hop {hop}: [{clsName}] {name} (outer={outerName}) Loc=({local.X:F0}, {local.Y:F0}, {local.Z:F0}) Rot=(p{rot.Pitch:F1}, y{rot.Yaw:F1}, r{rot.Roll:F1})");
                             var parentRef = current.GetOrDefault<FPackageIndex?>("AttachParent");
                             if (parentRef == null || parentRef.IsNull) break;
-                            current = parentRef.Load();
+                            current = LayerExtractor.LoadRef(parentRef);
                         }
                     }
 
@@ -1044,7 +1117,7 @@ public static class Program
                     continue;
                 }
 
-                var data = LayerExtractor.Extract(package, layerName, packagePath);
+                var data = LayerExtractor.Extract(layerExports, layerName, packagePath);
                 var jsonText = JsonConvert.SerializeObject(data, Formatting.Indented);
                 var outPath = Path.Combine(outputDir, layerName + ".json");
                 File.WriteAllText(outPath, jsonText);

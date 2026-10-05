@@ -156,6 +156,12 @@ Preserved from the existing baseline (until CUE4Parse covers them):
 - border / mapTextureCorners / minimapTexture — map-level metadata
   from a different extraction pipeline.
 
+World Partition layers (Squad 10.6+, *_WP): a new X_WP layer whose
+non-WP twin X is already in the baseline starts as a full copy of X,
+so the baseline-only fields above carry over. It is then renamed
+("<Name> WP"), its team configs come from the CSV, and its own CUE4Parse
+spatial data is merged in like any other layer.
+
 
 Files in this directory
 -----------------------

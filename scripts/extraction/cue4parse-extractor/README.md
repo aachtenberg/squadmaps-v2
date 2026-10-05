@@ -86,6 +86,27 @@ a per-lane color, and an `AASLaneLinks` array of `{NodeA, NodeB}` references
 that resolve to actual capture zone cluster actors. CUE4Parse reads all of
 this from the serialized design data — no `BeginPlay` required.
 
+### World Partition layers (Squad 10.6+)
+
+`*_WP` layers (e.g. `Yehorivka_RAAS_v1_WP`) keep almost nothing in the
+`.umap`. Each actor is its own package under the mount's
+`Content/__ExternalActors__/` mirror of the level path:
+
+```
+SquadGame/Content/Maps/Yehorivka/Gameplay_Layers/Yehorivka_RAAS_v1_WP.umap
+SquadGame/Content/__ExternalActors__/Maps/Yehorivka/Gameplay_Layers/Yehorivka_RAAS_v1_WP/**.uasset
+```
+
+`LayerExtractor.LoadLayerExports` loads those packages alongside the
+`.umap` (the run log prints `(+N external actors)`). The actors still
+reference each other as imports of the level package, which CUE4Parse
+can't resolve because each target lives in another package. `LoadRef`
+falls back to an index of the loaded actors keyed by their path below
+`PersistentLevel`. Without it, `AttachParent` chains stop at the first
+hop: capture zones come out as orphans at raw local offsets, and
+everything under a lane-graph actor shifts by that actor's translation.
+With it, the WP layers extract identically to their non-WP twins.
+
 ## Why this exists
 
 The Squad SDK Editor's Python API exposes only AActor base properties for
